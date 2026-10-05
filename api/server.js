@@ -35,6 +35,11 @@ const config = {
   }
 };
 
+// Default headers for all Ditto requests (pre-authentication)
+const dittoHeaders = {
+  'x-ditto-pre-authenticated': 'nginx:ditto'
+};
+
 // InfluxDB client
 const influxDB = new InfluxDB({
   url: config.influxdb.url,
@@ -73,13 +78,14 @@ app.get('/api/storage', async (req, res) => {
     const response = await axios.get(
       `${config.ditto.url}/api/${config.ditto.apiVersion}/things`,
       {
+        headers: dittoHeaders,
         params: {
           'filter': 'like(thingId,"*:CS-*")'
         }
       }
     );
 
-    const units = response.data.items || [];
+    const units = Array.isArray(response.data) ? response.data : (response.data.items || []);
     
     // Format response
     const formattedUnits = units.map(unit => ({
@@ -115,7 +121,8 @@ app.get('/api/storage/:id', async (req, res) => {
 
     // Get digital twin from Ditto
     const response = await axios.get(
-      `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}`
+      `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}`,
+      { headers: dittoHeaders }
     );
 
     const thing = response.data;
@@ -385,7 +392,8 @@ app.get('/api/maintenance/scores', async (req, res) => {
       
       try {
         const response = await axios.get(
-          `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}/features/maintenance`
+          `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}/features/maintenance`,
+          { headers: dittoHeaders }
         );
 
         scores.push({
@@ -422,7 +430,8 @@ app.get('/api/storage/:id/maintenance', async (req, res) => {
     const thingId = `org.eclipse.ditto:${unitId}`;
 
     const response = await axios.get(
-      `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}/features/maintenance`
+      `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}/features/maintenance`,
+      { headers: dittoHeaders }
     );
 
     res.json({
@@ -531,12 +540,14 @@ app.get('/api/analytics/summary', async (req, res) => {
 app.get('/api/twins', async (req, res) => {
   try {
     const response = await axios.get(
-      `${config.ditto.url}/api/${config.ditto.apiVersion}/things`
+      `${config.ditto.url}/api/${config.ditto.apiVersion}/things`,
+      { headers: dittoHeaders }
     );
 
+    const things = Array.isArray(response.data) ? response.data : (response.data.items || []);
     res.json({
-      count: response.data.items?.length || 0,
-      things: response.data.items || []
+      count: things.length,
+      things: things
     });
 
   } catch (error) {
@@ -557,7 +568,8 @@ app.get('/api/twins/:thingId', async (req, res) => {
     const thingId = req.params.thingId;
 
     const response = await axios.get(
-      `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}`
+      `${config.ditto.url}/api/${config.ditto.apiVersion}/things/${thingId}`,
+      { headers: dittoHeaders }
     );
 
     res.json(response.data);

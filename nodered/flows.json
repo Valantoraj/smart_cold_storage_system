@@ -21,14 +21,19 @@
     "inputs": 0,
     "x": 140,
     "y": 100,
-    "wires": [["parse_mqtt", "debug_raw_mqtt"]]
+    "wires": [
+      [
+        "parse_mqtt",
+        "debug_raw_mqtt"
+      ]
+    ]
   },
   {
     "id": "parse_mqtt",
     "type": "function",
     "z": "main_flow_tab",
     "name": "Parse and Validate",
-    "func": "// Parse MQTT message and validate\ntry {\n    const data = msg.payload;\n    \n    // Validate required fields\n    if (!data.unitId || data.temperature === undefined || \n        data.humidity === undefined || !data.compressorStatus || \n        data.energyConsumption === undefined) {\n        node.warn('Invalid data format: ' + JSON.stringify(data));\n        return null;\n    }\n    \n    // Store original data\n    msg.sensorData = {\n        unitId: data.unitId,\n        temperature: parseFloat(data.temperature),\n        humidity: parseFloat(data.humidity),\n        compressorStatus: data.compressorStatus,\n        energyConsumption: parseFloat(data.energyConsumption),\n        timestamp: data.timestamp || new Date().toISOString()\n    };\n    \n    // Set unit ID for routing\n    msg.unitId = data.unitId;\n    msg.topic = data.unitId;\n    \n    return msg;\n    \n} catch (error) {\n    node.error('Parse error: ' + error.message, msg);\n    return null;\n}",
+    "func": "try {\n    const data = msg.payload;\n    if (!data.unitId || data.temperature === undefined ||\n        data.humidity === undefined || !data.compressorStatus ||\n        data.energyConsumption === undefined) {\n        node.warn('Invalid data format: ' + JSON.stringify(data));\n        return null;\n    }\n    msg.sensorData = {\n        unitId: data.unitId,\n        temperature: parseFloat(data.temperature),\n        humidity: parseFloat(data.humidity),\n        compressorStatus: data.compressorStatus,\n        energyConsumption: parseFloat(data.energyConsumption),\n        timestamp: data.timestamp || new Date().toISOString()\n    };\n    msg.unitId = data.unitId;\n    msg.topic = data.unitId;\n    return msg;\n} catch (error) {\n    node.error('Parse error: ' + error.message, msg);\n    return null;\n}",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
@@ -36,14 +41,20 @@
     "libs": [],
     "x": 350,
     "y": 100,
-    "wires": [["influxdb_write", "ditto_update", "condition_check"]]
+    "wires": [
+      [
+        "influxdb_write",
+        "ditto_update",
+        "condition_check"
+      ]
+    ]
   },
   {
     "id": "influxdb_write",
     "type": "function",
     "z": "main_flow_tab",
     "name": "Prepare InfluxDB Write",
-    "func": "const data = msg.sensorData;\n\n// Prepare InfluxDB line protocol\nconst measurement = 'sensor_data';\nconst tags = `unitId=${data.unitId}`;\nconst fields = [\n    `temperature=${data.temperature}`,\n    `humidity=${data.humidity}`,\n    `compressorStatus=\"${data.compressorStatus}\"`,\n    `energyConsumption=${data.energyConsumption}`\n].join(',');\n\n// Convert timestamp to nanoseconds\nconst timestampNs = new Date(data.timestamp).getTime() * 1000000;\n\nmsg.payload = `${measurement},${tags} ${fields} ${timestampNs}`;\nmsg.bucket = 'cold_storage';\n\nreturn msg;",
+    "func": "const data = msg.sensorData;\nmsg.payload = [\n    {\n        temperature: data.temperature,\n        humidity: data.humidity,\n        compressorStatus: data.compressorStatus,\n        energyConsumption: data.energyConsumption\n    },\n    { unitId: data.unitId }\n];\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
@@ -51,7 +62,11 @@
     "libs": [],
     "x": 600,
     "y": 60,
-    "wires": [["influxdb_node"]]
+    "wires": [
+      [
+        "influxdb_node"
+      ]
+    ]
   },
   {
     "id": "influxdb_node",
@@ -76,7 +91,7 @@
     "type": "function",
     "z": "main_flow_tab",
     "name": "Prepare Ditto Update",
-    "func": "const data = msg.sensorData;\nconst unitId = data.unitId;\n\n// Determine status based on thresholds\nconst tempStatus = data.temperature > 8 ? 'critical' :\n                   data.temperature > 6 ? 'warning' : 'normal';\n\nconst humidityStatus = (data.humidity > 80 || data.humidity < 50) ? 'warning' : 'normal';\n\nconst energyEfficiency = data.energyConsumption > 4 ? 'critical' :\n                         data.energyConsumption > 3 ? 'inefficient' : 'normal';\n\n// Prepare Ditto PATCH payload\nconst dittoPayload = {\n    features: {\n        temperature: {\n            properties: {\n                value: data.temperature,\n                status: tempStatus,\n                lastUpdated: data.timestamp\n            }\n        },\n        humidity: {\n            properties: {\n                value: data.humidity,\n                status: humidityStatus,\n                lastUpdated: data.timestamp\n            }\n        },\n        compressor: {\n            properties: {\n                status: data.compressorStatus,\n                lastUpdated: data.timestamp\n            }\n        },\n        energy: {\n            properties: {\n                consumption: data.energyConsumption,\n                efficiency: energyEfficiency,\n                lastUpdated: data.timestamp\n            }\n        },\n        connectivity: {\n            properties: {\n                connected: true,\n                lastSeen: data.timestamp\n            }\n        }\n    }\n};\n\nmsg.payload = dittoPayload;\nmsg.url = `http://ditto-gateway:8080/api/2/things/org.eclipse.ditto:${unitId}`;\nmsg.method = 'PATCH';\nmsg.headers = {\n    'Content-Type': 'application/merge-patch+json'\n};\n\nreturn msg;",
+    "func": "const data = msg.sensorData;\nconst unitId = data.unitId;\nconst tempStatus = data.temperature > 8 ? 'critical' :\n                   data.temperature > 6 ? 'warning' : 'normal';\nconst humidityStatus = (data.humidity > 80 || data.humidity < 50) ? 'warning' : 'normal';\nconst energyEfficiency = data.energyConsumption > 4 ? 'critical' :\n                         data.energyConsumption > 3 ? 'inefficient' : 'normal';\nconst dittoPayload = {\n    features: {\n        temperature: { properties: { value: data.temperature, status: tempStatus, lastUpdated: data.timestamp } },\n        humidity: { properties: { value: data.humidity, status: humidityStatus, lastUpdated: data.timestamp } },\n        compressor: { properties: { status: data.compressorStatus, lastUpdated: data.timestamp } },\n        energy: { properties: { consumption: data.energyConsumption, efficiency: energyEfficiency, lastUpdated: data.timestamp } },\n        connectivity: { properties: { connected: true, lastSeen: data.timestamp } }\n    }\n};\nmsg.payload = dittoPayload;\nmsg.url = `http://ditto-gateway:8080/api/2/things/org.eclipse.ditto:${unitId}`;\nmsg.method = 'PATCH';\nmsg.headers = { 'Content-Type': 'application/merge-patch+json', 'x-ditto-pre-authenticated': 'nginx:nodered' };\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
@@ -84,7 +99,11 @@
     "libs": [],
     "x": 600,
     "y": 120,
-    "wires": [["ditto_http"]]
+    "wires": [
+      [
+        "ditto_http"
+      ]
+    ]
   },
   {
     "id": "ditto_http",
@@ -102,14 +121,16 @@
     "senderr": false,
     "x": 850,
     "y": 120,
-    "wires": [[]]
+    "wires": [
+      []
+    ]
   },
   {
     "id": "condition_check",
     "type": "function",
     "z": "main_flow_tab",
     "name": "Condition Detection",
-    "func": "const data = msg.sensorData;\nconst alerts = [];\n\n// Temperature thresholds\nconst TEMP_CRITICAL_HIGH = 10.0;\nconst TEMP_WARNING_HIGH = 8.0;\nconst TEMP_WARNING_LOW = 2.0;\nconst TEMP_CRITICAL_LOW = 0.0;\n\n// Humidity thresholds\nconst HUMIDITY_HIGH = 80;\nconst HUMIDITY_LOW = 50;\n\n// Energy threshold\nconst ENERGY_WARNING = 3.0;\nconst ENERGY_CRITICAL = 4.0;\n\n// Check temperature\nif (data.temperature >= TEMP_CRITICAL_HIGH) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'temperature_critical_high',\n        severity: 'critical',\n        message: `Temperature critically high: ${data.temperature}°C`,\n        value: data.temperature,\n        threshold: TEMP_CRITICAL_HIGH,\n        timestamp: data.timestamp\n    });\n} else if (data.temperature >= TEMP_WARNING_HIGH) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'temperature_warning_high',\n        severity: 'warning',\n        message: `Temperature above normal: ${data.temperature}°C`,\n        value: data.temperature,\n        threshold: TEMP_WARNING_HIGH,\n        timestamp: data.timestamp\n    });\n} else if (data.temperature <= TEMP_CRITICAL_LOW) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'temperature_critical_low',\n        severity: 'critical',\n        message: `Temperature critically low: ${data.temperature}°C`,\n        value: data.temperature,\n        threshold: TEMP_CRITICAL_LOW,\n        timestamp: data.timestamp\n    });\n} else if (data.temperature <= TEMP_WARNING_LOW) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'temperature_warning_low',\n        severity: 'warning',\n        message: `Temperature below normal: ${data.temperature}°C`,\n        value: data.temperature,\n        threshold: TEMP_WARNING_LOW,\n        timestamp: data.timestamp\n    });\n}\n\n// Check humidity\nif (data.humidity > HUMIDITY_HIGH || data.humidity < HUMIDITY_LOW) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'humidity_out_of_range',\n        severity: 'warning',\n        message: `Humidity out of range: ${data.humidity}%`,\n        value: data.humidity,\n        threshold: data.humidity > HUMIDITY_HIGH ? HUMIDITY_HIGH : HUMIDITY_LOW,\n        timestamp: data.timestamp\n    });\n}\n\n// Check energy consumption\nif (data.energyConsumption >= ENERGY_CRITICAL) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'energy_critical',\n        severity: 'critical',\n        message: `Energy consumption critically high: ${data.energyConsumption}kW`,\n        value: data.energyConsumption,\n        threshold: ENERGY_CRITICAL,\n        timestamp: data.timestamp\n    });\n} else if (data.energyConsumption >= ENERGY_WARNING) {\n    alerts.push({\n        unitId: data.unitId,\n        alertType: 'energy_warning',\n        severity: 'warning',\n        message: `Energy consumption elevated: ${data.energyConsumption}kW`,\n        value: data.energyConsumption,\n        threshold: ENERGY_WARNING,\n        timestamp: data.timestamp\n    });\n}\n\n// If alerts exist, send them\nif (alerts.length > 0) {\n    msg.alerts = alerts;\n    msg.sensorData = data;\n    return msg;\n}\n\nreturn null;",
+    "func": "const data = msg.sensorData;\nconst alerts = [];\nconst TEMP_CRITICAL_HIGH = 10.0, TEMP_WARNING_HIGH = 8.0;\nconst TEMP_WARNING_LOW = 2.0, TEMP_CRITICAL_LOW = 0.0;\nconst HUMIDITY_HIGH = 80, HUMIDITY_LOW = 50;\nconst ENERGY_WARNING = 3.0, ENERGY_CRITICAL = 4.0;\n\nif (data.temperature >= TEMP_CRITICAL_HIGH) {\n    alerts.push({ unitId: data.unitId, alertType: 'temperature_critical_high', severity: 'critical',\n        message: `Temperature critically high: ${data.temperature}\u00b0C`, value: data.temperature, threshold: TEMP_CRITICAL_HIGH, timestamp: data.timestamp });\n} else if (data.temperature >= TEMP_WARNING_HIGH) {\n    alerts.push({ unitId: data.unitId, alertType: 'temperature_warning_high', severity: 'warning',\n        message: `Temperature above normal: ${data.temperature}\u00b0C`, value: data.temperature, threshold: TEMP_WARNING_HIGH, timestamp: data.timestamp });\n} else if (data.temperature <= TEMP_CRITICAL_LOW) {\n    alerts.push({ unitId: data.unitId, alertType: 'temperature_critical_low', severity: 'critical',\n        message: `Temperature critically low: ${data.temperature}\u00b0C`, value: data.temperature, threshold: TEMP_CRITICAL_LOW, timestamp: data.timestamp });\n} else if (data.temperature <= TEMP_WARNING_LOW) {\n    alerts.push({ unitId: data.unitId, alertType: 'temperature_warning_low', severity: 'warning',\n        message: `Temperature below normal: ${data.temperature}\u00b0C`, value: data.temperature, threshold: TEMP_WARNING_LOW, timestamp: data.timestamp });\n}\nif (data.humidity > HUMIDITY_HIGH || data.humidity < HUMIDITY_LOW) {\n    alerts.push({ unitId: data.unitId, alertType: 'humidity_out_of_range', severity: 'warning',\n        message: `Humidity out of range: ${data.humidity}%`, value: data.humidity,\n        threshold: data.humidity > HUMIDITY_HIGH ? HUMIDITY_HIGH : HUMIDITY_LOW, timestamp: data.timestamp });\n}\nif (data.energyConsumption >= ENERGY_CRITICAL) {\n    alerts.push({ unitId: data.unitId, alertType: 'energy_critical', severity: 'critical',\n        message: `Energy critically high: ${data.energyConsumption}kW`, value: data.energyConsumption, threshold: ENERGY_CRITICAL, timestamp: data.timestamp });\n} else if (data.energyConsumption >= ENERGY_WARNING) {\n    alerts.push({ unitId: data.unitId, alertType: 'energy_warning', severity: 'warning',\n        message: `Energy elevated: ${data.energyConsumption}kW`, value: data.energyConsumption, threshold: ENERGY_WARNING, timestamp: data.timestamp });\n}\nif (alerts.length > 0) { msg.alerts = alerts; msg.sensorData = data; return msg; }\nreturn null;",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
@@ -117,14 +138,18 @@
     "libs": [],
     "x": 600,
     "y": 180,
-    "wires": [["alert_handler", "predictive_maintenance_check"]]
+    "wires": [
+      [
+        "alert_handler"
+      ]
+    ]
   },
   {
     "id": "alert_handler",
     "type": "function",
     "z": "main_flow_tab",
     "name": "Process Alerts",
-    "func": "const alerts = msg.alerts || [];\nconst outputs = [];\n\nfor (const alert of alerts) {\n    // Prepare alert message for each alert\n    const alertMsg = {\n        payload: alert,\n        topic: `coldstorage/${alert.unitId}/alerts`\n    };\n    outputs.push(alertMsg);\n}\n\nreturn [outputs];",
+    "func": "const alerts = msg.alerts || [];\nconst outputs = [];\nfor (const alert of alerts) {\n    outputs.push({ payload: alert, topic: `coldstorage/${alert.unitId}/alerts` });\n}\nreturn [outputs];",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
@@ -132,7 +157,14 @@
     "libs": [],
     "x": 850,
     "y": 180,
-    "wires": [["mqtt_alert_publish", "influxdb_alert_write", "debug_alerts"]]
+    "wires": [
+      [
+        "mqtt_alert_publish",
+        "influxdb_alert_write",
+        "cooldown_check",
+        "debug_alerts"
+      ]
+    ]
   },
   {
     "id": "mqtt_alert_publish",
@@ -142,14 +174,9 @@
     "topic": "",
     "qos": "2",
     "retain": "false",
-    "respTopic": "",
-    "contentType": "",
-    "userProps": "",
-    "correl": "",
-    "expiry": "",
     "broker": "mqtt_broker",
     "x": 1090,
-    "y": 160,
+    "y": 140,
     "wires": []
   },
   {
@@ -157,15 +184,19 @@
     "type": "function",
     "z": "main_flow_tab",
     "name": "Write Alert to InfluxDB",
-    "func": "const alert = msg.payload;\n\nconst measurement = 'alerts';\nconst tags = `unitId=${alert.unitId},alertType=${alert.alertType},severity=${alert.severity}`;\nconst fields = [\n    `message=\"${alert.message}\"`,\n    `value=${alert.value}`,\n    `threshold=${alert.threshold}`,\n    `resolved=false`\n].join(',');\n\nconst timestampNs = new Date(alert.timestamp).getTime() * 1000000;\n\nmsg.payload = `${measurement},${tags} ${fields} ${timestampNs}`;\nmsg.bucket = 'alerts';\n\nreturn msg;",
+    "func": "const alert = msg.payload;\nmsg.payload = [\n    { message: alert.message, value: alert.value, threshold: alert.threshold, resolved: 'false' },\n    { unitId: alert.unitId, alertType: alert.alertType, severity: alert.severity }\n];\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
     "libs": [],
     "x": 1120,
-    "y": 200,
-    "wires": [["influxdb_alerts"]]
+    "y": 180,
+    "wires": [
+      [
+        "influxdb_alerts"
+      ]
+    ]
   },
   {
     "id": "influxdb_alerts",
@@ -181,19 +212,62 @@
     "retentionPolicyV18Flux": "",
     "org": "smart_cooling",
     "bucket": "alerts",
-    "x": 1360,
-    "y": 200,
+    "x": 1380,
+    "y": 180,
     "wires": []
   },
   {
-    "id": "predictive_maintenance_check",
-    "type": "link in",
+    "id": "cooldown_check",
+    "type": "function",
     "z": "main_flow_tab",
-    "name": "To Predictive Maintenance",
-    "links": [],
-    "x": 835,
+    "name": "Cooldown (10 min per alert type)",
+    "func": "const alert = msg.payload;\nconst cooldownMs = 10 * 60 * 1000; // 10 minutes\nconst key = `${alert.unitId}_${alert.alertType}`;\nconst lastSent = context.get(key) || 0;\nconst now = Date.now();\n\nif (now - lastSent < cooldownMs) {\n    node.debug(`Cooldown active for ${key}, skipping email`);\n    return null;\n}\ncontext.set(key, now);\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1120,
     "y": 240,
-    "wires": [[]]
+    "wires": [
+      [
+        "format_email"
+      ]
+    ]
+  },
+  {
+    "id": "format_email",
+    "type": "function",
+    "z": "main_flow_tab",
+    "name": "Format Alert Email",
+    "func": "const alert = msg.payload;\nconst severityIcon = alert.severity === 'critical' ? '\ud83d\udd34 CRITICAL' : '\ud83d\udfe1 WARNING';\nconst ts = new Date(alert.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });\n\nmsg.topic = `[Smart Cold Storage] ${severityIcon} - ${alert.unitId}: ${alert.alertType.replace(/_/g,' ').toUpperCase()}`;\n\nmsg.payload = `Smart Cold Storage Alert\n==========================================\n\nSeverity  : ${severityIcon}\nUnit      : ${alert.unitId}\nAlert Type: ${alert.alertType.replace(/_/g,' ')}\nMessage   : ${alert.message}\nValue     : ${alert.value}\nThreshold : ${alert.threshold}\nTime (IST): ${ts}\n\n==========================================\nAction Required:\n${alert.severity === 'critical'\n  ? 'IMMEDIATE action required. Check the unit and contact maintenance team.'\n  : 'Monitor the unit closely. Take corrective action if trend continues.'}\n\n-- Smart Cold Storage Monitoring System`;\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1380,
+    "y": 240,
+    "wires": [
+      [
+        "email_send"
+      ]
+    ]
+  },
+  {
+    "id": "email_send",
+    "type": "e-mail",
+    "z": "main_flow_tab",
+    "server": "smtp.gmail.com",
+    "port": "587",
+    "secure": false,
+    "tls": true,
+    "name": "Send Alert Email",
+    "dname": "Send Alert Email",
+    "x": 1620,
+    "y": 240,
+    "wires": [],
+    "to": "23i270@psgtech.ac.in"
   },
   {
     "id": "debug_raw_mqtt",
@@ -206,8 +280,6 @@
     "tostatus": false,
     "complete": "payload",
     "targetType": "msg",
-    "statusVal": "",
-    "statusType": "auto",
     "x": 360,
     "y": 40,
     "wires": []
@@ -223,10 +295,8 @@
     "tostatus": false,
     "complete": "payload",
     "targetType": "msg",
-    "statusVal": "",
-    "statusType": "auto",
-    "x": 1080,
-    "y": 240,
+    "x": 1090,
+    "y": 280,
     "wires": []
   },
   {
@@ -269,6 +339,9 @@
     "influxdbVersion": "2.0",
     "url": "http://influxdb:8086",
     "timeout": "10",
-    "rejectUnauthorized": false
+    "rejectUnauthorized": false,
+    "credentials": {
+      "token": "smart-cooling-super-secret-token"
+    }
   }
 ]

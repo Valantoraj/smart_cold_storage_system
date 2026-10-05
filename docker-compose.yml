@@ -67,11 +67,18 @@ services:
   ditto-policies:
     image: eclipse/ditto-policies:3.4.0
     container_name: smart_cooling_ditto_policies
+    hostname: ditto-policies
     environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
       - DITTO_DEVOPS_SECURED=false
+      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
+      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
+      - REMOTE_HOSTNAME=ditto-policies
+      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
     networks:
-      - smart_cooling_network
+      smart_cooling_network:
+        aliases:
+          - ditto-cluster
     depends_on:
       - mongodb
     restart: unless-stopped
@@ -80,51 +87,74 @@ services:
   ditto-things:
     image: eclipse/ditto-things:3.4.0
     container_name: smart_cooling_ditto_things
+    hostname: ditto-things
     environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
       - DITTO_DEVOPS_SECURED=false
+      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
+      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
+      - REMOTE_HOSTNAME=ditto-things
+      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
     networks:
       - smart_cooling_network
     depends_on:
       - mongodb
+      - ditto-policies
     restart: unless-stopped
 
   # Eclipse Ditto - Things Search Service
   ditto-things-search:
     image: eclipse/ditto-things-search:3.4.0
     container_name: smart_cooling_ditto_things_search
+    hostname: ditto-things-search
     environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
       - DITTO_DEVOPS_SECURED=false
+      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
+      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
+      - REMOTE_HOSTNAME=ditto-things-search
+      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
     networks:
       - smart_cooling_network
     depends_on:
       - mongodb
+      - ditto-policies
     restart: unless-stopped
 
   # Eclipse Ditto - Connectivity Service
   ditto-connectivity:
     image: eclipse/ditto-connectivity:3.4.0
     container_name: smart_cooling_ditto_connectivity
+    hostname: ditto-connectivity
     environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
       - DITTO_DEVOPS_SECURED=false
+      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
+      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
+      - REMOTE_HOSTNAME=ditto-connectivity
+      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
     networks:
       - smart_cooling_network
     depends_on:
       - mongodb
+      - ditto-policies
     restart: unless-stopped
 
   # Eclipse Ditto - Gateway Service
   ditto-gateway:
     image: eclipse/ditto-gateway:3.4.0
     container_name: smart_cooling_ditto_gateway
+    hostname: ditto-gateway
     ports:
       - "8080:8080"
     environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
       - DITTO_DEVOPS_SECURED=false
       - ENABLE_PRE_AUTHENTICATION=true
+      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
+      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
+      - REMOTE_HOSTNAME=ditto-gateway
+      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
     networks:
       - smart_cooling_network
     depends_on:
@@ -141,15 +171,16 @@ services:
 
   # Node-RED
   nodered:
-    image: nodered/node-red:latest
+    build:
+      context: ./nodered
+      dockerfile: Dockerfile
     container_name: smart_cooling_nodered
     ports:
       - "1880:1880"
     environment:
       - TZ=UTC
     volumes:
-      - nodered_data:/data
-      - ./nodered:/data/user
+      - ./nodered:/data
     networks:
       - smart_cooling_network
     depends_on:
@@ -172,7 +203,7 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=Valan@2005
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=
     volumes:

@@ -12,7 +12,7 @@ echo ""
 
 # Wait for Ditto to be ready
 echo "Waiting for Ditto to be ready..."
-until curl -s -f -o /dev/null "${DITTO_URL%/api/2}/health"; do
+until [ "$(curl -s -o /dev/null -w "%{http_code}" "${DITTO_URL}/things")" != "000" ]; do
   echo "  Ditto not ready yet, waiting..."
   sleep 5
 done
@@ -23,6 +23,7 @@ echo ""
 echo "Creating cold-storage-policy..."
 POLICY_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "${DITTO_URL}/policies/org.eclipse.ditto:cold-storage-policy" \
   -H "Content-Type: application/json" \
+  -H "x-ditto-pre-authenticated: nginx:ditto" \
   -d @"${SCRIPT_DIR}/policies/cold-storage-policy.json")
 
 HTTP_CODE=$(echo "$POLICY_RESPONSE" | tail -n1)
@@ -41,6 +42,7 @@ for unit in "${UNITS[@]}"; do
   echo "Creating thing ${unit}..."
   THING_RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "${DITTO_URL}/things/org.eclipse.ditto:${unit}" \
     -H "Content-Type: application/json" \
+    -H "x-ditto-pre-authenticated: nginx:ditto" \
     -d @"${SCRIPT_DIR}/things/${unit}.json")
   
   HTTP_CODE=$(echo "$THING_RESPONSE" | tail -n1)

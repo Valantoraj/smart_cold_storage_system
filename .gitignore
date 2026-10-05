@@ -41,11 +41,18 @@ logs/
 .env
 .env.local
 
-# Temporary files
-*.tmp
-*.temp
-tmp/
-temp/
+# Node-RED runtime files and credentials (contains secrets)
+nodered/flows_cred.json
+nodered/.config.nodes.json
+nodered/.config.nodes.json.backup
+nodered/.config.runtime.json
+nodered/.config.runtime.json.backup
+nodered/.config.users.json
+nodered/.config.users.json.backup
+nodered/.flows.json.backup
+nodered/.flows*.backup
+nodered/context/
+nodered/node_modules/
 
 # Test outputs
 test-results/

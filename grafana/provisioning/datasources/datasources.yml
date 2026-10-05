@@ -5,6 +5,7 @@ apiVersion: 1
 
 datasources:
   - name: InfluxDB Cold Storage
+    uid: influxdb-cold-storage
     type: influxdb
     access: proxy
     url: http://influxdb:8086
@@ -19,6 +20,7 @@ datasources:
     isDefault: true
 
   - name: InfluxDB Alerts
+    uid: influxdb-alerts
     type: influxdb
     access: proxy
     url: http://influxdb:8086
@@ -32,6 +34,7 @@ datasources:
     editable: true
 
   - name: InfluxDB Analytics
+    uid: influxdb-analytics
     type: influxdb
     access: proxy
     url: http://influxdb:8086

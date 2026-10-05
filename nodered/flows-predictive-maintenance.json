@@ -4,7 +4,7 @@
     "type": "tab",
     "label": "Predictive Maintenance",
     "disabled": false,
-    "info": "Predictive maintenance flow analyzing multi-signal patterns"
+    "info": "Real-time predictive maintenance using InfluxDB trend analysis"
   },
   {
     "id": "pm_trigger",
@@ -19,139 +19,61 @@
     "repeat": "300",
     "crontab": "",
     "once": true,
-    "onceDelay": "10",
+    "onceDelay": "15",
     "topic": "",
     "payload": "",
     "payloadType": "date",
     "x": 140,
-    "y": 100,
-    "wires": [["get_units"]]
+    "y": 80,
+    "wires": [
+      [
+        "get_units"
+      ]
+    ]
   },
   {
     "id": "get_units",
     "type": "function",
     "z": "predictive_maintenance_tab",
     "name": "Get Unit List",
-    "func": "// List of units to analyze\nconst units = ['CS-01', 'CS-02', 'CS-03'];\n\n// Create a message for each unit\nconst messages = units.map(unitId => {\n    return {\n        payload: unitId,\n        unitId: unitId\n    };\n});\n\nreturn [messages];",
+    "func": "const units = ['CS-01', 'CS-02', 'CS-03'];\nreturn [units.map(unitId => ({ payload: unitId, unitId: unitId }))];",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
     "libs": [],
     "x": 340,
-    "y": 100,
-    "wires": [["query_temp_trend", "query_energy_trend", "query_compressor_runtime"]]
+    "y": 80,
+    "wires": [
+      [
+        "query_influxdb"
+      ]
+    ]
   },
   {
-    "id": "query_temp_trend",
+    "id": "query_influxdb",
     "type": "function",
     "z": "predictive_maintenance_tab",
-    "name": "Query Temperature Trend",
-    "func": "const unitId = msg.unitId;\n\n// Flux query to get temperature trend over last hour\nconst query = `\nfrom(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\n  |> derivative(unit: 1h, nonNegative: false)\n  |> mean()\n`;\n\nmsg.payload = query;\nmsg.analysis = 'temperature_trend';\n\nreturn msg;",
+    "name": "Build InfluxDB Query",
+    "func": "const unitId = msg.unitId;\n\n// Single query that returns temp trend, avg energy, compressor ON% in last 1h\nconst fluxQuery = `\ntempData = from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\n\ntempFirst = tempData |> first() |> findRecord(fn: (key) => true, idx: 0)\ntempLast  = tempData |> last()  |> findRecord(fn: (key) => true, idx: 0)\ntempMean  = tempData |> mean()  |> findRecord(fn: (key) => true, idx: 0)\n\nenergyMean = from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"energyConsumption\")\n  |> mean()\n  |> findRecord(fn: (key) => true, idx: 0)\n\ncompTotal = from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"compressorStatus\")\n  |> count()\n  |> findRecord(fn: (key) => true, idx: 0)\n\ncompOn = from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"compressorStatus\")\n  |> filter(fn: (r) => r[\"_value\"] == \"ON\")\n  |> count()\n  |> findRecord(fn: (key) => true, idx: 0)\n\nunion(\n  tables: [\n    array.from(rows: [{_field: \"tempFirst\",   _value: tempFirst._value}]),\n    array.from(rows: [{_field: \"tempLast\",    _value: tempLast._value}]),\n    array.from(rows: [{_field: \"tempMean\",    _value: tempMean._value}]),\n    array.from(rows: [{_field: \"energyMean\",  _value: energyMean._value}]),\n    array.from(rows: [{_field: \"compTotal\",   _value: float(v: compTotal._value)}]),\n    array.from(rows: [{_field: \"compOn\",      _value: float(v: compOn._value)}])\n  ]\n)`;\n\nmsg.payload = fluxQuery;\nmsg.headers = {\n    'Authorization': 'Token smart-cooling-super-secret-token',\n    'Content-Type': 'application/vnd.flux',\n    'Accept': 'application/csv'\n};\nmsg.url = 'http://influxdb:8086/api/v2/query?org=smart_cooling';\nmsg.method = 'POST';\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 590,
-    "y": 60,
-    "wires": [["influxdb_query"]]
+    "x": 560,
+    "y": 80,
+    "wires": [
+      [
+        "http_influxdb"
+      ]
+    ]
   },
   {
-    "id": "query_energy_trend",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Query Energy Trend",
-    "func": "const unitId = msg.unitId;\n\n// Flux query to get energy consumption trend\nconst query = `\nfrom(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"energyConsumption\")\n  |> derivative(unit: 1h, nonNegative: false)\n  |> mean()\n`;\n\nmsg.payload = query;\nmsg.analysis = 'energy_trend';\n\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 580,
-    "y": 120,
-    "wires": [["influxdb_query"]]
-  },
-  {
-    "id": "query_compressor_runtime",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Query Compressor Runtime",
-    "func": "const unitId = msg.unitId;\n\n// Flux query to calculate compressor ON percentage\nconst query = `\nimport \"strings\"\n\ndata = from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"sensor_data\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"${unitId}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"compressorStatus\")\n\ntotal = data |> count() |> findRecord(fn: (key) => true, idx: 0)\n\non_count = data \n  |> filter(fn: (r) => r[\"_value\"] == \"ON\")\n  |> count()\n  |> findRecord(fn: (key) => true, idx: 0)\n\ndata\n  |> limit(n: 1)\n  |> map(fn: (r) => ({\n      _time: r._time,\n      _measurement: \"compressor_runtime\",\n      _field: \"on_percentage\",\n      _value: float(v: on_count._value) / float(v: total._value) * 100.0\n  }))\n`;\n\nmsg.payload = query;\nmsg.analysis = 'compressor_runtime';\n\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 600,
-    "y": 180,
-    "wires": [["influxdb_query"]]
-  },
-  {
-    "id": "influxdb_query",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Execute InfluxDB Query",
-    "func": "// Store query results by analysis type\nconst unitId = msg.unitId;\nconst analysisType = msg.analysis;\nconst query = msg.payload;\n\n// Get or initialize unit analysis context\nlet unitAnalysis = context.get(unitId) || {};\n\n// Simulate query execution - in real implementation, use HTTP request to InfluxDB\n// For now, store query and mark as pending\nunitAnalysis[analysisType] = {\n    query: query,\n    result: null,\n    timestamp: Date.now()\n};\n\ncontext.set(unitId, unitAnalysis);\n\n// Pass message forward with query info\nmsg.queryInfo = {\n    unitId: unitId,\n    analysis: analysisType,\n    query: query\n};\n\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 870,
-    "y": 120,
-    "wires": [["aggregate_results"]]
-  },
-  {
-    "id": "aggregate_results",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Aggregate Analysis Results",
-    "func": "// Wait for all three queries to complete for this unit\nconst unitId = msg.unitId;\n\n// Get stored results\nlet results = flow.get('pm_results') || {};\nif (!results[unitId]) {\n    results[unitId] = {\n        temperature_trend: null,\n        energy_trend: null,\n        compressor_runtime: null,\n        timestamp: Date.now()\n    };\n}\n\n// Store this result\nresults[unitId][msg.analysis] = msg.queryInfo;\n\nflow.set('pm_results', results);\n\n// Check if all three analyses are complete\nif (results[unitId].temperature_trend && \n    results[unitId].energy_trend && \n    results[unitId].compressor_runtime) {\n    \n    // All results ready - proceed to maintenance score calculation\n    msg.payload = {\n        unitId: unitId,\n        analyses: results[unitId]\n    };\n    \n    // Clear results for next cycle\n    delete results[unitId];\n    flow.set('pm_results', results);\n    \n    return msg;\n}\n\nreturn null;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1130,
-    "y": 120,
-    "wires": [["calculate_maintenance_score"]]
-  },
-  {
-    "id": "calculate_maintenance_score",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Calculate Maintenance Score",
-    "func": "const unitId = msg.payload.unitId;\n\n// Simulated trend values (in real implementation, these come from InfluxDB queries)\n// For demonstration, we'll calculate based on recent data patterns\n\n// Get recent data from context to simulate trend analysis\nconst recentData = context.get(`${unitId}_recent`) || {\n    temperatures: [4.0, 4.1, 4.2, 4.3, 4.4],\n    energies: [2.1, 2.2, 2.3, 2.4, 2.5],\n    compressor_on_pct: 60\n};\n\n// Calculate temperature stability score (0-100)\n// Lower score = more unstable = higher maintenance need\nconst temps = recentData.temperatures;\nconst tempMean = temps.reduce((a, b) => a + b) / temps.length;\nconst tempVariance = temps.reduce((sum, val) => sum + Math.pow(val - tempMean, 2), 0) / temps.length;\nconst tempStdDev = Math.sqrt(tempVariance);\n\n// Temperature stability: low variance = high score\nlet tempStabilityScore = Math.max(0, Math.min(100, 100 - (tempStdDev * 50)));\n\n// Check for rising trend\nconst tempTrend = temps[temps.length - 1] - temps[0];\nif (tempTrend > 0.5) {\n    tempStabilityScore -= 20; // Penalize rising trend\n}\n\n// Calculate energy efficiency score (0-100)\nconst energies = recentData.energies;\nconst energyMean = energies.reduce((a, b) => a + b) / energies.length;\n\n// Energy efficiency: lower consumption = higher score\nlet energyEfficiencyScore = Math.max(0, Math.min(100, 100 - ((energyMean - 2.0) * 25)));\n\n// Check for increasing energy trend\nconst energyTrend = energies[energies.length - 1] - energies[0];\nif (energyTrend > 0.3) {\n    energyEfficiencyScore -= 15; // Penalize rising energy\n}\n\n// Calculate compressor health score (0-100)\nconst compressorOnPct = recentData.compressor_on_pct;\n\n// Ideal compressor runtime is 40-60%\n// Too low or too high indicates problems\nlet compressorHealthScore = 100;\nif (compressorOnPct < 40) {\n    compressorHealthScore = 60 + compressorOnPct; // Low runtime\n} else if (compressorOnPct > 60) {\n    compressorHealthScore = 100 - (compressorOnPct - 60); // High runtime\n}\n\n// Calculate overall maintenance score (0-100)\n// Higher score = more maintenance attention needed\nconst maintenanceScore = Math.round(\n    (100 - tempStabilityScore) * 0.35 +\n    (100 - energyEfficiencyScore) * 0.35 +\n    (100 - compressorHealthScore) * 0.30\n);\n\n// Determine priority and recommendation\nlet priority, recommendation;\n\nif (maintenanceScore < 20) {\n    priority = 'low';\n    recommendation = 'Normal operation - routine maintenance only';\n} else if (maintenanceScore < 40) {\n    priority = 'low';\n    recommendation = 'Monitor trends - no immediate action needed';\n} else if (maintenanceScore < 60) {\n    priority = 'medium';\n    recommendation = 'Schedule inspection within 2 weeks';\n} else if (maintenanceScore < 80) {\n    priority = 'high';\n    recommendation = 'Schedule maintenance within 48 hours';\n} else {\n    priority = 'critical';\n    recommendation = 'Immediate maintenance required - equipment degradation detected';\n}\n\n// Detailed analysis\nconst analysis = {\n    unitId: unitId,\n    maintenanceScore: maintenanceScore,\n    temperatureStability: Math.round(tempStabilityScore),\n    energyEfficiency: Math.round(energyEfficiencyScore),\n    compressorHealth: Math.round(compressorHealthScore),\n    recommendation: recommendation,\n    priority: priority,\n    timestamp: new Date().toISOString(),\n    details: {\n        temperatureTrend: tempTrend > 0.3 ? 'increasing' : tempTrend < -0.3 ? 'decreasing' : 'stable',\n        energyTrend: energyTrend > 0.2 ? 'increasing' : energyTrend < -0.2 ? 'decreasing' : 'stable',\n        compressorRuntime: `${compressorOnPct}%`,\n        averageTemperature: Math.round(tempMean * 10) / 10,\n        averageEnergy: Math.round(energyMean * 10) / 10\n    }\n};\n\nmsg.payload = analysis;\nmsg.unitId = unitId;\nmsg.maintenanceScore = maintenanceScore;\nmsg.priority = priority;\n\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1400,
-    "y": 120,
-    "wires": [["update_ditto_maintenance", "check_maintenance_threshold", "debug_maintenance_score"]]
-  },
-  {
-    "id": "update_ditto_maintenance",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Update Ditto Maintenance Feature",
-    "func": "const analysis = msg.payload;\nconst unitId = analysis.unitId;\n\n// Prepare Ditto update for maintenance feature\nconst dittoPayload = {\n    features: {\n        maintenance: {\n            properties: {\n                score: analysis.maintenanceScore,\n                temperatureStability: analysis.temperatureStability,\n                energyEfficiency: analysis.energyEfficiency,\n                compressorHealth: analysis.compressorHealth,\n                recommendation: analysis.recommendation,\n                priority: analysis.priority,\n                lastCalculated: analysis.timestamp\n            }\n        },\n        status: {\n            properties: {\n                healthScore: Math.round((analysis.temperatureStability + analysis.energyEfficiency + analysis.compressorHealth) / 3),\n                health: analysis.priority === 'critical' ? 'critical' :\n                        analysis.priority === 'high' ? 'attention' : 'healthy'\n            }\n        }\n    }\n};\n\nmsg.payload = dittoPayload;\nmsg.url = `http://ditto-gateway:8080/api/2/things/org.eclipse.ditto:${unitId}`;\nmsg.method = 'PATCH';\nmsg.headers = {\n    'Content-Type': 'application/merge-patch+json'\n};\n\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 200,
-    "y": 260,
-    "wires": [["http_ditto_update"]]
-  },
-  {
-    "id": "http_ditto_update",
+    "id": "http_influxdb",
     "type": "http request",
     "z": "predictive_maintenance_tab",
-    "name": "HTTP PATCH Ditto",
+    "name": "Query InfluxDB",
     "method": "use",
     "ret": "txt",
     "paytoqs": "ignore",
@@ -161,60 +83,134 @@
     "proxy": "",
     "authType": "",
     "senderr": false,
-    "x": 480,
+    "x": 800,
+    "y": 80,
+    "wires": [
+      [
+        "parse_influxdb_result"
+      ]
+    ]
+  },
+  {
+    "id": "parse_influxdb_result",
+    "type": "function",
+    "z": "predictive_maintenance_tab",
+    "name": "Parse & Calculate Score",
+    "func": "const csv = msg.payload;\nconst unitId = msg.unitId;\n\n// Parse CSV response from InfluxDB\nconst results = {};\ntry {\n    const lines = csv.split('\\n').filter(l => l && !l.startsWith('#') && !l.startsWith(',result'));\n    for (const line of lines) {\n        const cols = line.split(',');\n        if (cols.length >= 4) {\n            const field = cols[cols.length - 2];\n            const value = parseFloat(cols[cols.length - 1]);\n            if (field && !isNaN(value)) results[field] = value;\n        }\n    }\n} catch(e) { node.warn('CSV parse error: ' + e.message); }\n\n// Use parsed values or safe defaults\nconst tempFirst     = results.tempFirst    ?? 4.0;\nconst tempLast      = results.tempLast     ?? 4.0;\nconst tempMean      = results.tempMean     ?? 4.0;\nconst energyMean    = results.energyMean   ?? 2.0;\nconst compTotal     = results.compTotal    ?? 1;\nconst compOn        = results.compOn       ?? 0;\n\n// --- Temperature stability score (0-100, lower = worse) ---\nconst tempTrend = tempLast - tempFirst;\nlet tempScore = 100;\nif (tempTrend > 2.0)       tempScore -= 40;  // fast rising\nelse if (tempTrend > 1.0)  tempScore -= 25;\nelse if (tempTrend > 0.5)  tempScore -= 15;\nif (tempMean > 7)          tempScore -= 20;  // running hot\nelse if (tempMean > 6)     tempScore -= 10;\ntempScore = Math.max(0, tempScore);\n\n// --- Energy efficiency score (0-100) ---\nlet energyScore = 100;\nif (energyMean >= 4.0)      energyScore = 10;\nelse if (energyMean >= 3.5) energyScore = 30;\nelse if (energyMean >= 3.0) energyScore = 55;\nelse if (energyMean >= 2.5) energyScore = 75;\n\n// --- Compressor health score (0-100) ---\nconst compOnPct = compTotal > 0 ? (compOn / compTotal) * 100 : 50;\nlet compScore = 100;\nif (compOnPct > 85)       compScore = 20;  // running almost continuously\nelse if (compOnPct > 70)  compScore = 50;\nelse if (compOnPct > 60)  compScore = 75;\nelse if (compOnPct < 15)  compScore = 60;  // almost never running\n\n// --- Overall maintenance score (0-100, higher = more urgent) ---\nconst maintenanceScore = Math.round(\n    (100 - tempScore)   * 0.35 +\n    (100 - energyScore) * 0.35 +\n    (100 - compScore)   * 0.30\n);\n\nlet priority, recommendation;\nif (maintenanceScore < 20)      { priority = 'low';      recommendation = 'Normal operation - routine maintenance only'; }\nelse if (maintenanceScore < 40) { priority = 'low';      recommendation = 'Monitor trends - no immediate action needed'; }\nelse if (maintenanceScore < 60) { priority = 'medium';   recommendation = 'Schedule inspection within 2 weeks'; }\nelse if (maintenanceScore < 80) { priority = 'high';     recommendation = 'Schedule maintenance within 48 hours'; }\nelse                            { priority = 'critical'; recommendation = 'Immediate maintenance required - equipment degradation detected'; }\n\nmsg.payload = {\n    unitId, maintenanceScore, priority, recommendation,\n    temperatureStability: tempScore,\n    energyEfficiency: energyScore,\n    compressorHealth: compScore,\n    timestamp: new Date().toISOString(),\n    details: {\n        tempTrend: tempTrend > 0.3 ? 'rising' : tempTrend < -0.3 ? 'falling' : 'stable',\n        avgTemp: Math.round(tempMean * 10) / 10,\n        avgEnergy: Math.round(energyMean * 10) / 10,\n        compressorOnPct: Math.round(compOnPct)\n    }\n};\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1050,
+    "y": 80,
+    "wires": [
+      [
+        "update_ditto_maintenance",
+        "check_pm_threshold",
+        "debug_pm_score"
+      ]
+    ]
+  },
+  {
+    "id": "update_ditto_maintenance",
+    "type": "function",
+    "z": "predictive_maintenance_tab",
+    "name": "Update Ditto Maintenance",
+    "func": "const a = msg.payload;\nmsg.payload = {\n    features: {\n        maintenance: { properties: {\n            score: a.maintenanceScore,\n            temperatureStability: a.temperatureStability,\n            energyEfficiency: a.energyEfficiency,\n            compressorHealth: a.compressorHealth,\n            recommendation: a.recommendation,\n            priority: a.priority,\n            lastCalculated: a.timestamp\n        }},\n        status: { properties: {\n            healthScore: Math.round((a.temperatureStability + a.energyEfficiency + a.compressorHealth) / 3),\n            health: a.priority === 'critical' ? 'critical' : a.priority === 'high' ? 'attention' : 'healthy'\n        }}\n    }\n};\nmsg.url = `http://ditto-gateway:8080/api/2/things/org.eclipse.ditto:${a.unitId}`;\nmsg.method = 'PATCH';\nmsg.headers = { 'Content-Type': 'application/merge-patch+json', 'x-ditto-pre-authenticated': 'nginx:nodered' };\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 340,
+    "y": 200,
+    "wires": [
+      [
+        "http_ditto_pm"
+      ]
+    ]
+  },
+  {
+    "id": "http_ditto_pm",
+    "type": "http request",
+    "z": "predictive_maintenance_tab",
+    "name": "PATCH Ditto Twin",
+    "method": "use",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "senderr": false,
+    "x": 580,
+    "y": 200,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "check_pm_threshold",
+    "type": "function",
+    "z": "predictive_maintenance_tab",
+    "name": "Score >= 60?",
+    "func": "const a = msg.payload;\nif (a.maintenanceScore >= 60) return msg;\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 340,
+    "y": 300,
+    "wires": [
+      [
+        "pm_cooldown"
+      ]
+    ]
+  },
+  {
+    "id": "pm_cooldown",
+    "type": "function",
+    "z": "predictive_maintenance_tab",
+    "name": "Cooldown (30 min per unit)",
+    "func": "const a = msg.payload;\nconst cooldownMs = 30 * 60 * 1000;\nconst key = `pm_${a.unitId}`;\nconst lastSent = context.get(key) || 0;\nconst now = Date.now();\nif (now - lastSent < cooldownMs) { node.debug(`PM cooldown active for ${a.unitId}`); return null; }\ncontext.set(key, now);\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 560,
+    "y": 300,
+    "wires": [
+      [
+        "write_pm_influxdb",
+        "format_pm_email"
+      ]
+    ]
+  },
+  {
+    "id": "write_pm_influxdb",
+    "type": "function",
+    "z": "predictive_maintenance_tab",
+    "name": "Write PM Score to InfluxDB",
+    "func": "const a = msg.payload;\nmsg.payload = [\n    { score: a.maintenanceScore, message: a.recommendation },\n    { unitId: a.unitId, priority: a.priority }\n];\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 820,
     "y": 260,
-    "wires": [[]]
+    "wires": [
+      [
+        "influxdb_pm"
+      ]
+    ]
   },
   {
-    "id": "check_maintenance_threshold",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Check Maintenance Threshold",
-    "func": "const analysis = msg.payload;\n\n// Generate predictive maintenance alert if score is above threshold\nif (analysis.maintenanceScore >= 60) {\n    \n    const alert = {\n        unitId: analysis.unitId,\n        alertType: 'predictive_maintenance',\n        severity: analysis.priority === 'critical' ? 'critical' : 'warning',\n        message: `Predictive maintenance alert: ${analysis.recommendation}`,\n        maintenanceScore: analysis.maintenanceScore,\n        details: analysis.details,\n        timestamp: analysis.timestamp\n    };\n    \n    msg.payload = alert;\n    msg.topic = `coldstorage/${analysis.unitId}/alerts`;\n    \n    return msg;\n}\n\nreturn null;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 220,
-    "y": 340,
-    "wires": [["publish_maintenance_alert", "write_maintenance_alert"]]
-  },
-  {
-    "id": "publish_maintenance_alert",
-    "type": "mqtt out",
-    "z": "predictive_maintenance_tab",
-    "name": "Publish Maintenance Alert",
-    "topic": "",
-    "qos": "2",
-    "retain": "false",
-    "respTopic": "",
-    "contentType": "",
-    "userProps": "",
-    "correl": "",
-    "expiry": "",
-    "broker": "mqtt_broker",
-    "x": 540,
-    "y": 320,
-    "wires": []
-  },
-  {
-    "id": "write_maintenance_alert",
-    "type": "function",
-    "z": "predictive_maintenance_tab",
-    "name": "Write to InfluxDB",
-    "func": "const alert = msg.payload;\n\nconst measurement = 'maintenance_score';\nconst tags = `unitId=${alert.unitId},priority=${alert.details.priority || 'high'}`;\nconst fields = [\n    `score=${alert.maintenanceScore}`,\n    `message=\"${alert.message}\"`,\n    `recommendation=\"${alert.details.recommendation || 'Check equipment'}\"`\n].join(',');\n\nconst timestampNs = new Date(alert.timestamp).getTime() * 1000000;\n\nmsg.payload = `${measurement},${tags} ${fields} ${timestampNs}`;\nmsg.bucket = 'analytics';\n\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 540,
-    "y": 360,
-    "wires": [["influxdb_maintenance"]]
-  },
-  {
-    "id": "influxdb_maintenance",
+    "id": "influxdb_pm",
     "type": "influxdb out",
     "z": "predictive_maintenance_tab",
     "influxdb": "influxdb_config",
@@ -227,25 +223,57 @@
     "retentionPolicyV18Flux": "",
     "org": "smart_cooling",
     "bucket": "analytics",
-    "x": 800,
-    "y": 360,
+    "x": 1080,
+    "y": 260,
     "wires": []
   },
   {
-    "id": "debug_maintenance_score",
+    "id": "format_pm_email",
+    "type": "function",
+    "z": "predictive_maintenance_tab",
+    "name": "Format PM Email",
+    "func": "const a = msg.payload;\nconst priorityIcon = a.priority === 'critical' ? '\ud83d\udd34 CRITICAL' : a.priority === 'high' ? '\ud83d\udfe0 HIGH' : '\ud83d\udfe1 MEDIUM';\nconst ts = new Date(a.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });\n\nmsg.topic = `[Smart Cold Storage] ${priorityIcon} Predictive Maintenance - ${a.unitId} (Score: ${a.maintenanceScore}/100)`;\n\nmsg.payload = `Smart Cold Storage - Predictive Maintenance Alert\n=====================================================\n\nUnit      : ${a.unitId}\nPriority  : ${priorityIcon}\nMaint Score: ${a.maintenanceScore} / 100\nTime (IST): ${ts}\n\nHealth Breakdown:\n  Temperature Stability : ${a.temperatureStability}/100\n  Energy Efficiency     : ${a.energyEfficiency}/100\n  Compressor Health     : ${a.compressorHealth}/100\n\nTrend Details:\n  Temperature Trend : ${a.details.tempTrend}  (avg ${a.details.avgTemp}\u00b0C)\n  Energy Consumption: avg ${a.details.avgEnergy} kW\n  Compressor ON     : ${a.details.compressorOnPct}% of the time\n\nRecommendation:\n  ${a.recommendation}\n\n=====================================================\n-- Smart Cold Storage Predictive Maintenance System`;\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 820,
+    "y": 340,
+    "wires": [
+      [
+        "pm_email_send"
+      ]
+    ]
+  },
+  {
+    "id": "pm_email_send",
+    "type": "e-mail",
+    "z": "predictive_maintenance_tab",
+    "server": "smtp.gmail.com",
+    "port": "587",
+    "secure": false,
+    "tls": true,
+    "name": "Send PM Email",
+    "dname": "Send PM Email",
+    "x": 1060,
+    "y": 340,
+    "wires": [],
+    "to": "23i270@psgtech.ac.in"
+  },
+  {
+    "id": "debug_pm_score",
     "type": "debug",
     "z": "predictive_maintenance_tab",
-    "name": "Debug Maintenance Score",
+    "name": "Debug PM Score",
     "active": true,
     "tosidebar": true,
     "console": false,
     "tostatus": false,
     "complete": "payload",
     "targetType": "msg",
-    "statusVal": "",
-    "statusType": "auto",
-    "x": 230,
-    "y": 420,
+    "x": 340,
+    "y": 400,
     "wires": []
   }
 ]
