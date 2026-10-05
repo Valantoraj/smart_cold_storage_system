@@ -1,0 +1,241 @@
+version: '3.8'
+
+services:
+  # Mosquitto MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: smart_cooling_mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - smart_cooling_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # InfluxDB Time-Series Database
+  influxdb:
+    image: influxdb:2.7
+    container_name: smart_cooling_influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpass123
+      - DOCKER_INFLUXDB_INIT_ORG=smart_cooling
+      - DOCKER_INFLUXDB_INIT_BUCKET=cold_storage
+      - DOCKER_INFLUXDB_INIT_RETENTION=90d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=smart-cooling-super-secret-token
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+      - ./influxdb/init:/docker-entrypoint-initdb.d
+    networks:
+      - smart_cooling_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MongoDB for Eclipse Ditto
+  mongodb:
+    image: mongo:6.0
+    container_name: smart_cooling_mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=ditto
+      - MONGO_INITDB_ROOT_PASSWORD=ditto
+      - MONGO_INITDB_DATABASE=ditto
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - smart_cooling_network
+    restart: unless-stopped
+    command: --storageEngine wiredTiger
+
+  # Eclipse Ditto - Policies Service
+  ditto-policies:
+    image: eclipse/ditto-policies:3.4.0
+    container_name: smart_cooling_ditto_policies
+    environment:
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - DITTO_DEVOPS_SECURED=false
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  # Eclipse Ditto - Things Service
+  ditto-things:
+    image: eclipse/ditto-things:3.4.0
+    container_name: smart_cooling_ditto_things
+    environment:
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - DITTO_DEVOPS_SECURED=false
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  # Eclipse Ditto - Things Search Service
+  ditto-things-search:
+    image: eclipse/ditto-things-search:3.4.0
+    container_name: smart_cooling_ditto_things_search
+    environment:
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - DITTO_DEVOPS_SECURED=false
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  # Eclipse Ditto - Connectivity Service
+  ditto-connectivity:
+    image: eclipse/ditto-connectivity:3.4.0
+    container_name: smart_cooling_ditto_connectivity
+    environment:
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - DITTO_DEVOPS_SECURED=false
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  # Eclipse Ditto - Gateway Service
+  ditto-gateway:
+    image: eclipse/ditto-gateway:3.4.0
+    container_name: smart_cooling_ditto_gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto
+      - DITTO_DEVOPS_SECURED=false
+      - ENABLE_PRE_AUTHENTICATION=true
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - ditto-policies
+      - ditto-things
+      - ditto-things-search
+      - ditto-connectivity
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Node-RED
+  nodered:
+    image: nodered/node-red:latest
+    container_name: smart_cooling_nodered
+    ports:
+      - "1880:1880"
+    environment:
+      - TZ=UTC
+    volumes:
+      - nodered_data:/data
+      - ./nodered:/data/user
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mosquitto
+      - influxdb
+      - ditto-gateway
+    restart: unless-stopped
+    user: "0:0"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1880/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: smart_cooling_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # REST API Service
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: smart_cooling_api
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=smart-cooling-super-secret-token
+      - INFLUXDB_ORG=smart_cooling
+      - INFLUXDB_BUCKET=cold_storage
+      - DITTO_URL=http://ditto-gateway:8080
+      - MQTT_URL=mqtt://mosquitto:1883
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - influxdb
+      - ditto-gateway
+      - mosquitto
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  smart_cooling_network:
+    driver: bridge
+    name: smart_cooling_network
+
+volumes:
+  mosquitto_data:
+    name: smart_cooling_mosquitto_data
+  mosquitto_log:
+    name: smart_cooling_mosquitto_log
+  influxdb_data:
+    name: smart_cooling_influxdb_data
+  influxdb_config:
+    name: smart_cooling_influxdb_config
+  mongodb_data:
+    name: smart_cooling_mongodb_data
+  nodered_data:
+    name: smart_cooling_nodered_data
+  grafana_data:
+    name: smart_cooling_grafana_data

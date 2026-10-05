@@ -1,0 +1,8 @@
+# Requirements for Smart Cold Storage Sensor Simulator
+
+# MQTT client library
+paho-mqtt>=1.6.1
+
+# Optional: For advanced scenarios
+# numpy>=1.24.0
+# pandas>=2.0.0

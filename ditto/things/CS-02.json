@@ -1,0 +1,105 @@
+{
+  "thingId": "org.eclipse.ditto:CS-02",
+  "policyId": "org.eclipse.ditto:cold-storage-policy",
+  "definition": "org.eclipse.ditto:ColdStorageUnit:1.0.0",
+  "attributes": {
+    "manufacturer": "ColdTech Industries",
+    "model": "CT-5000",
+    "serialNumber": "CS02-2025-002",
+    "location": "Warehouse A - Section 2",
+    "building": "Main Facility",
+    "capacity": "1000 cubic meters",
+    "installDate": "2025-01-20",
+    "warrantyExpiration": "2028-01-20",
+    "lastMaintenanceDate": "2026-08-20",
+    "maintenanceSchedule": "quarterly",
+    "description": "Secondary cold storage unit for perishable goods"
+  },
+  "features": {
+    "temperature": {
+      "definition": ["org.eclipse.ditto:TemperatureSensor:1.0.0"],
+      "properties": {
+        "value": 4.0,
+        "unit": "celsius",
+        "status": "normal",
+        "target": 4.0,
+        "min": 2.0,
+        "max": 6.0,
+        "lastUpdated": "2026-10-05T10:00:00Z"
+      }
+    },
+    "humidity": {
+      "definition": ["org.eclipse.ditto:HumiditySensor:1.0.0"],
+      "properties": {
+        "value": 65.0,
+        "unit": "percent",
+        "status": "normal",
+        "target": 65.0,
+        "min": 50.0,
+        "max": 80.0,
+        "lastUpdated": "2026-10-05T10:00:00Z"
+      }
+    },
+    "compressor": {
+      "definition": ["org.eclipse.ditto:Compressor:1.0.0"],
+      "properties": {
+        "status": "OFF",
+        "runtime": 0,
+        "cycles": 0,
+        "lastStartTime": null,
+        "lastStopTime": null,
+        "totalRuntime": 0,
+        "health": "healthy",
+        "lastUpdated": "2026-10-05T10:00:00Z"
+      }
+    },
+    "energy": {
+      "definition": ["org.eclipse.ditto:EnergySensor:1.0.0"],
+      "properties": {
+        "consumption": 0.0,
+        "unit": "kW",
+        "efficiency": "normal",
+        "totalConsumption": 0.0,
+        "peakConsumption": 0.0,
+        "averageConsumption": 0.0,
+        "lastUpdated": "2026-10-05T10:00:00Z"
+      }
+    },
+    "status": {
+      "definition": ["org.eclipse.ditto:SystemStatus:1.0.0"],
+      "properties": {
+        "operational": true,
+        "health": "healthy",
+        "healthScore": 100,
+        "lastMaintenance": "2026-08-20",
+        "nextMaintenance": "2026-11-20",
+        "alerts": [],
+        "activeAlertCount": 0,
+        "lastUpdated": "2026-10-05T10:00:00Z"
+      }
+    },
+    "connectivity": {
+      "definition": ["org.eclipse.ditto:Connectivity:1.0.0"],
+      "properties": {
+        "connected": true,
+        "signalStrength": 100,
+        "lastSeen": "2026-10-05T10:00:00Z",
+        "uptime": 0,
+        "dataRate": 1.0,
+        "errors": 0
+      }
+    },
+    "maintenance": {
+      "definition": ["org.eclipse.ditto:MaintenanceInfo:1.0.0"],
+      "properties": {
+        "score": 0,
+        "temperatureStability": 100.0,
+        "energyEfficiency": 100.0,
+        "compressorHealth": 100.0,
+        "recommendation": "Normal operation",
+        "priority": "low",
+        "lastCalculated": "2026-10-05T10:00:00Z"
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+# Grafana Datasource Configuration
+# Automatically provisions InfluxDB datasource on startup
+
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB Cold Storage
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: smart_cooling
+      defaultBucket: cold_storage
+      tlsSkipVerify: true
+    secureJsonData:
+      token: smart-cooling-super-secret-token
+    editable: true
+    isDefault: true
+
+  - name: InfluxDB Alerts
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: smart_cooling
+      defaultBucket: alerts
+      tlsSkipVerify: true
+    secureJsonData:
+      token: smart-cooling-super-secret-token
+    editable: true
+
+  - name: InfluxDB Analytics
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: smart_cooling
+      defaultBucket: analytics
+      tlsSkipVerify: true
+    secureJsonData:
+      token: smart-cooling-super-secret-token
+    editable: true

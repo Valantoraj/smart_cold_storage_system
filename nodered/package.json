@@ -1,0 +1,22 @@
+{
+  "name": "smart-cold-storage-nodered",
+  "version": "1.0.0",
+  "description": "Node-RED flows for Smart Cold Storage Digital Twin",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "iot",
+    "digital-twin",
+    "cold-storage",
+    "monitoring"
+  ],
+  "author": "Smart Cooling Team",
+  "license": "MIT",
+  "dependencies": {
+    "node-red-contrib-influxdb": "^0.6.1",
+    "node-red-dashboard": "^3.6.0",
+    "@influxdata/influxdb-client": "^1.33.2"
+  }
+}

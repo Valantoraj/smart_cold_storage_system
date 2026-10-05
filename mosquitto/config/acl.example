@@ -1,0 +1,100 @@
+# Mosquitto Access Control List (ACL)
+# Smart Cold Storage Digital Twin System
+#
+# This file defines topic-based access control.
+# Uncomment in mosquitto.conf to enable: acl_file /mosquitto/config/acl
+#
+# Format:
+# user <username>
+# topic [read|write|readwrite] <topic>
+#
+# Special users:
+# - anonymous (for clients without authentication)
+
+# =============================================================================
+# Administrator Access
+# =============================================================================
+
+user admin
+topic readwrite #
+
+# =============================================================================
+# Sensor/Device Access (Publishing Data)
+# =============================================================================
+
+# Storage unit CS-01
+user sensor-cs-01
+topic write coldstorage/CS-01/data
+topic read coldstorage/CS-01/commands
+topic write coldstorage/CS-01/status
+
+# Storage unit CS-02
+user sensor-cs-02
+topic write coldstorage/CS-02/data
+topic read coldstorage/CS-02/commands
+topic write coldstorage/CS-02/status
+
+# Storage unit CS-03
+user sensor-cs-03
+topic write coldstorage/CS-03/data
+topic read coldstorage/CS-03/commands
+topic write coldstorage/CS-03/status
+
+# Generic sensor pattern (all storage units)
+pattern write coldstorage/%u/data
+pattern read coldstorage/%u/commands
+pattern write coldstorage/%u/status
+
+# =============================================================================
+# Node-RED / Processing Service Access
+# =============================================================================
+
+user nodered
+topic read coldstorage/#
+topic write coldstorage/+/alerts
+topic write coldstorage/+/commands
+
+# =============================================================================
+# Monitoring / Dashboard Access (Read-Only)
+# =============================================================================
+
+user monitor
+topic read coldstorage/#
+
+# =============================================================================
+# Anonymous Access (Development Only)
+# =============================================================================
+
+# For development, allow anonymous read access
+user anonymous
+topic read coldstorage/+/data
+topic read coldstorage/+/status
+topic read coldstorage/+/alerts
+
+# =============================================================================
+# Alert Service Access
+# =============================================================================
+
+user alertservice
+topic read coldstorage/+/alerts
+topic write coldstorage/+/alerts
+
+# =============================================================================
+# API Service Access
+# =============================================================================
+
+user api
+topic read coldstorage/#
+topic write coldstorage/+/commands
+
+# =============================================================================
+# Pattern Examples
+# =============================================================================
+
+# Pattern with %u substitutes the username
+# Example: user sensor-cs-01 can write to coldstorage/sensor-cs-01/data
+# pattern write coldstorage/%u/data
+
+# Pattern with %c substitutes the client ID
+# Example: client cs-01-sensor can write to coldstorage/cs-01-sensor/data
+# pattern write coldstorage/%c/data

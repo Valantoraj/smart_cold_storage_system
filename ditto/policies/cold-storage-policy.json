@@ -1,0 +1,96 @@
+{
+  "policyId": "org.eclipse.ditto:cold-storage-policy",
+  "entries": {
+    "owner": {
+      "subjects": {
+        "nginx:ditto": {
+          "type": "nginx basic auth user"
+        }
+      },
+      "resources": {
+        "thing:/": {
+          "grant": [
+            "READ",
+            "WRITE"
+          ],
+          "revoke": []
+        },
+        "policy:/": {
+          "grant": [
+            "READ",
+            "WRITE"
+          ],
+          "revoke": []
+        },
+        "message:/": {
+          "grant": [
+            "READ",
+            "WRITE"
+          ],
+          "revoke": []
+        }
+      }
+    },
+    "monitoring": {
+      "subjects": {
+        "nginx:monitoring": {
+          "type": "monitoring service"
+        }
+      },
+      "resources": {
+        "thing:/": {
+          "grant": [
+            "READ"
+          ],
+          "revoke": [
+            "WRITE"
+          ]
+        },
+        "message:/": {
+          "grant": [
+            "READ"
+          ],
+          "revoke": []
+        }
+      }
+    },
+    "nodered": {
+      "subjects": {
+        "nginx:nodered": {
+          "type": "nodered service"
+        }
+      },
+      "resources": {
+        "thing:/": {
+          "grant": [
+            "READ",
+            "WRITE"
+          ],
+          "revoke": []
+        },
+        "message:/": {
+          "grant": [
+            "READ",
+            "WRITE"
+          ],
+          "revoke": []
+        }
+      }
+    },
+    "anonymous": {
+      "subjects": {
+        "nginx:anonymous": {
+          "type": "anonymous access"
+        }
+      },
+      "resources": {
+        "thing:/": {
+          "grant": [
+            "READ"
+          ],
+          "revoke": []
+        }
+      }
+    }
+  }
+}
