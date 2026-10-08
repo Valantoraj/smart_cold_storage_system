@@ -229,7 +229,124 @@ def sim_loop():
 
 threading.Thread(target=sim_loop, daemon=True).start()
 
+# ─── Ditto WebSocket Live Updates ───────────────────────────────────────────
+DITTO_WS_URL  = os.environ.get("DITTO_WS_URL", "")
+DITTO_HTTP_URL = os.environ.get("DITTO_URL", "http://ditto-gateway:8080")
+AGENT_API_URL  = os.environ.get("AGENT_API_URL", "")
+
+# Store latest anomaly scores received from Edge Anomaly Detector or BigQuery ML
+anomaly_scores = {}
+edge_node_status = {}
+
+def ditto_websocket_thread():
+    """
+    Subscribes to Ditto WebSocket for live twin change notifications.
+    When a twin is modified (by Ditto Sync Agent), pushes the update
+    to all connected browsers via SocketIO — no polling needed.
+    """
+    if not DITTO_WS_URL:
+        print("[Ditto WS] No DITTO_WS_URL set — using simulation data only")
+        return
+
+    import websocket as ws_lib
+
+    def on_open(ws):
+        print("[Ditto WS] Connected — subscribing to twin events")
+        # Subscribe to all thing modification events
+        ws.send("START-SEND-EVENTS?namespaces=org.eclipse.ditto")
+
+    def on_message(ws, message):
+        try:
+            if message == "START-SEND-EVENTS:ACK":
+                print("[Ditto WS] Event subscription confirmed")
+                return
+
+            data = json.loads(message)
+            topic = data.get("topic", "")
+            path  = data.get("path", "")
+            value = data.get("value", {})
+
+            # Only process twin modification events on /features
+            if "/things/twin/events/modified" not in topic:
+                return
+            if path != "/features":
+                return
+
+            # Extract unit ID from topic: org.eclipse.ditto/CS-01/things/twin/events/modified
+            parts = topic.split("/")
+            if len(parts) < 2:
+                return
+            unit_id = parts[1]
+
+            # Extract sensor values from features
+            features = value if isinstance(value, dict) else {}
+            temp_props  = features.get("temperature", {}).get("properties", {})
+            hum_props   = features.get("humidity", {}).get("properties", {})
+            comp_props  = features.get("compressor", {}).get("properties", {})
+            eng_props   = features.get("energy", {}).get("properties", {})
+            maint_props = features.get("maintenance", {}).get("properties", {})
+            anom_props  = features.get("anomaly", {}).get("properties", {})
+
+            twin_update = {
+                "source":       "ditto_websocket",
+                "unitId":       unit_id,
+                "temperature":  temp_props.get("value"),
+                "humidity":     hum_props.get("value"),
+                "compressorStatus": comp_props.get("status"),
+                "energyConsumption": eng_props.get("consumption"),
+                "healthStatus": features.get("status", {}).get("properties", {}).get("health", "unknown"),
+                "maintenanceScore": maint_props.get("score"),
+                "anomalyEdgeScore": anom_props.get("edgeScore"),
+                "anomalyCloudScore": anom_props.get("cloudScore"),
+                "anomalyRisk":  anom_props.get("riskLevel"),
+                "timestamp":    temp_props.get("lastUpdated"),
+            }
+
+            # Push to all connected browser clients
+            socketio.emit("twin_update", twin_update)
+
+        except Exception as e:
+            print(f"[Ditto WS] Message error: {e}")
+
+    def on_error(ws, error):
+        print(f"[Ditto WS] Error: {error}")
+
+    def on_close(ws, code, msg):
+        print(f"[Ditto WS] Closed ({code}) — reconnecting in 10s")
+        time.sleep(10)
+        start_ditto_ws()
+
+    def start_ditto_ws():
+        try:
+            ws = ws_lib.WebSocketApp(
+                DITTO_WS_URL,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close,
+                header={"x-ditto-pre-authenticated": "nginx:ditto"}
+            )
+            ws.run_forever(ping_interval=30, ping_timeout=10)
+        except Exception as e:
+            print(f"[Ditto WS] Connection failed: {e}")
+            time.sleep(15)
+            start_ditto_ws()
+
+    start_ditto_ws()
+
+
+if DITTO_WS_URL:
+    try:
+        import websocket
+        ditto_ws_thread = threading.Thread(target=ditto_websocket_thread, daemon=True)
+        ditto_ws_thread.start()
+        print(f"[Ditto WS] Connecting to {DITTO_WS_URL}")
+    except ImportError:
+        print("[Ditto WS] websocket-client not installed — install it for live twin updates")
+
+
 # ─── Routes ────────────────────────────────────────────────────────────────
+import requests as req_lib
 @app.route("/")
 def index(): return render_template("index.html")
 
@@ -237,6 +354,97 @@ def index(): return render_template("index.html")
 def api_status():
     with lock: return jsonify({"running":sim_running,"speed":sim_speed,"mqttConnected":mqtt_connected,
                               "stats":stats,"units":{k:v.state() for k,v in units.items()},"alerts":list(alerts_log)[:20]})
+
+@app.route("/api/twin/<unit_id>")
+def api_twin(unit_id):
+    """Get current digital twin state from Ditto"""
+    try:
+        resp = req_lib.get(
+            f"{DITTO_HTTP_URL}/api/2/things/org.eclipse.ditto:{unit_id}",
+            headers={"x-ditto-pre-authenticated": "nginx:ditto"},
+            timeout=5
+        )
+        if resp.status_code == 200:
+            return jsonify(resp.json())
+        return jsonify({"error": "Not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/anomaly-scores")
+def api_anomaly_scores():
+    """Get latest anomaly scores (edge + cloud) for all units"""
+    return jsonify(anomaly_scores)
+
+@app.route("/api/anomaly-scores/<unit_id>", methods=["POST"])
+def update_anomaly_score(unit_id):
+    """Receive anomaly score updates from Edge Anomaly Detector or BigQuery Streamer"""
+    data = request.get_json(silent=True) or {}
+    anomaly_scores[unit_id] = {
+        "unitId":    unit_id,
+        "edgeScore": data.get("score") or data.get("edgeScore"),
+        "cloudScore": data.get("cloudScore"),
+        "riskLevel": data.get("riskLevel", "unknown"),
+        "updatedAt": data.get("evaluatedAt", datetime.now(timezone.utc).isoformat()),
+    }
+    # Push to connected browsers
+    socketio.emit("anomaly_score_update", anomaly_scores[unit_id])
+    return jsonify({"status": "ok"})
+
+@app.route("/api/agent/query", methods=["POST"])
+def api_agent_query():
+    """
+    Proxy to Vertex AI Agent Engine.
+    Forwards natural language questions to the Gemini ADK agent.
+    """
+    if not AGENT_API_URL:
+        return jsonify({
+            "response": "AI Agent not configured. Set AGENT_API_URL in .env to enable.",
+            "toolCalls": [],
+            "status": "unconfigured"
+        })
+
+    body = request.get_json(silent=True) or {}
+    question = body.get("question", "")
+    session_id = body.get("sessionId", "webapp-default")
+
+    if not question:
+        return jsonify({"error": "No question provided"}), 400
+
+    try:
+        resp = req_lib.post(
+            f"{AGENT_API_URL}/query",
+            json={"question": question, "sessionId": session_id},
+            timeout=60
+        )
+        if resp.status_code == 200:
+            return jsonify(resp.json())
+        return jsonify({"error": f"Agent returned {resp.status_code}", "response": "Agent unavailable"}), 200
+    except req_lib.exceptions.ConnectionError:
+        return jsonify({"response": "AI Agent service is not reachable. Is it running?", "status": "offline"})
+    except req_lib.exceptions.Timeout:
+        return jsonify({"response": "AI Agent timed out (>60s). Try a simpler question.", "status": "timeout"})
+    except Exception as e:
+        return jsonify({"response": f"Error: {str(e)}", "status": "error"})
+
+@app.route("/api/edge-nodes")
+def api_edge_nodes():
+    """Return ioFog agent heartbeat status"""
+    return jsonify({
+        "nodes": edge_node_status,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+
+@app.route("/api/edge-nodes/<node_id>/heartbeat", methods=["POST"])
+def edge_node_heartbeat(node_id):
+    """Receive heartbeat from ioFog agents"""
+    edge_node_status[node_id] = {
+        "nodeId": node_id,
+        "lastSeen": datetime.now(timezone.utc).isoformat(),
+        "status": "online",
+        "data": request.get_json(silent=True) or {}
+    }
+    socketio.emit("edge_node_update", edge_node_status[node_id])
+    return jsonify({"status": "ok"})
 
 @socketio.on("set_scenario")
 def h_scenario(d):
@@ -259,12 +467,18 @@ def h_connect():
     with lock:
         emit("init",{"running":sim_running,"speed":sim_speed,"mqttConnected":mqtt_connected,"stats":stats,
                      "units":{k:v.state() for k,v in units.items()},"alerts":list(alerts_log)[:20],
-                     "scenarios":[{"id":s,**ColdStorageUnit.SCENARIO_INFO[s]} for s in ColdStorageUnit.SCENARIOS]})
+                     "scenarios":[{"id":s,**ColdStorageUnit.SCENARIO_INFO[s]} for s in ColdStorageUnit.SCENARIOS],
+                     "dittoWsEnabled": bool(DITTO_WS_URL),
+                     "agentEnabled": bool(AGENT_API_URL),
+                     "anomalyScores": anomaly_scores,
+                     "edgeNodes": edge_node_status})
 
 if __name__ == "__main__":
-    print("="*50)
+    print("="*55)
     print("  Smart Cold Storage Web Controller")
-    print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT}")
-    print("  URL:  http://0.0.0.0:8088")
-    print("="*50)
+    print(f"  MQTT:       {MQTT_HOST}:{MQTT_PORT}")
+    print(f"  Ditto WS:   {DITTO_WS_URL or 'disabled'}")
+    print(f"  Agent API:  {AGENT_API_URL or 'disabled'}")
+    print("  URL:        http://0.0.0.0:8088")
+    print("="*55)
     socketio.run(app, host="0.0.0.0", port=8088, debug=False, allow_unsafe_werkzeug=True)

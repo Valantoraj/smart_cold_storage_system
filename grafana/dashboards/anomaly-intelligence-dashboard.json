@@ -1,0 +1,281 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.4 },
+              { "color": "orange", "value": 0.65 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "unit": "none",
+          "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"CS-01\")\n  |> filter(fn: (r) => r[\"_field\"] == \"score\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "CS-01 Edge Anomaly Score",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.4 },
+              { "color": "orange", "value": 0.65 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"CS-02\")\n  |> filter(fn: (r) => r[\"_field\"] == \"score\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "CS-02 Edge Anomaly Score",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.4 },
+              { "color": "orange", "value": 0.65 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"CS-03\")\n  |> filter(fn: (r) => r[\"_field\"] == \"score\")\n  |> last()",
+          "refId": "A"
+        }
+      ],
+      "title": "CS-03 Edge Anomaly Score",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.4 },
+              { "color": "red", "value": 0.65 }
+            ]
+          },
+          "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 18, "x": 0, "y": 8 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> filter(fn: (r) => r[\"_field\"] == \"score\")\n  |> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)",
+          "refId": "A"
+        }
+      ],
+      "title": "Anomaly Score Trends — All Units",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ { "color": "green", "value": null } ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "score" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "gauge" } },
+              { "id": "min", "value": 0 },
+              { "id": "max", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 18, "y": 8 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> last()\n  |> pivot(rowKey: [\"unitId\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"unitId\", \"score\", \"zscore_temp\", \"zscore_energy\", \"correlation_score\", \"compressor_score\", \"riskLevel\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Anomaly Score Components (Live)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never"
+          },
+          "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"CS-01\")\n  |> filter(fn: (r) => r[\"_field\"] == \"zscore_temp\" or r[\"_field\"] == \"zscore_energy\" or r[\"_field\"] == \"correlation_score\" or r[\"_field\"] == \"compressor_score\")\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)",
+          "refId": "A"
+        }
+      ],
+      "title": "CS-01 Anomaly Components Breakdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never"
+          },
+          "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "10.2.0",
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-cold-storage" },
+          "query": "from(bucket: \"cold_storage\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"anomaly_scores\")\n  |> filter(fn: (r) => r[\"unitId\"] == \"CS-02\")\n  |> filter(fn: (r) => r[\"_field\"] == \"zscore_temp\" or r[\"_field\"] == \"zscore_energy\" or r[\"_field\"] == \"correlation_score\" or r[\"_field\"] == \"compressor_score\")\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)",
+          "refId": "A"
+        }
+      ],
+      "title": "CS-02 Anomaly Components Breakdown",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "light",
+  "tags": ["cold-storage", "anomaly", "ai"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Anomaly Intelligence Dashboard",
+  "uid": "anomaly-intelligence",
+  "version": 1,
+  "weekStart": ""
+}

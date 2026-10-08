@@ -1,0 +1,47 @@
+{
+  "id": "mqtt-cold-storage-connection",
+  "name": "Cold Storage MQTT Bridge",
+  "connectionType": "mqtt-3",
+  "connectionStatus": "open",
+  "uri": "tcp://mosquitto:1883",
+  "sources": [
+    {
+      "addresses": ["coldstorage/+/data"],
+      "qos": 1,
+      "consumerCount": 1,
+      "authorizationContext": ["nginx:ditto"],
+      "enforcement": {
+        "input": "{{ header:mqtt5-user-properties:unitId | source:address | fn:substring-after('coldstorage/') | fn:substring-before('/data') }}",
+        "filters": ["{{ entity:id | fn:substring-after(':') }}"]
+      },
+      "payloadMapping": ["javascript-cold-storage-mapping"]
+    }
+  ],
+  "targets": [
+    {
+      "address": "coldstorage/{{ thing:name }}/alerts",
+      "topics": [
+        "_/_/things/twin/events/modified",
+        "_/_/things/live/messages/maintenance-required"
+      ],
+      "authorizationContext": ["nginx:ditto"],
+      "qos": 1,
+      "payloadMapping": ["javascript-alert-mapping"]
+    }
+  ],
+  "mappingDefinitions": {
+    "javascript-cold-storage-mapping": {
+      "mappingEngine": "JavaScript",
+      "options": {
+        "incomingScript": "function mapToDittoProtocol(headers, textPayload, bytePayload, contentType) {\n    const jsonBody = JSON.parse(textPayload);\n    const unitId = jsonBody.unitId;\n    const ts = jsonBody.timestamp || new Date().toISOString();\n\n    const temp = jsonBody.temperature;\n    const hum  = jsonBody.humidity;\n    const comp = jsonBody.compressorStatus;\n    const eng  = jsonBody.energyConsumption;\n\n    const tempStatus   = temp >= 10 ? 'critical' : temp >= 8 ? 'warning' : 'normal';\n    const humStatus    = (hum > 80 || hum < 50) ? 'warning' : 'normal';\n    const engEff       = eng >= 4 ? 'critical' : eng >= 3 ? 'inefficient' : 'normal';\n\n    return Ditto.buildDittoProtocolMsg(\n        'org.eclipse.ditto',\n        unitId,\n        'things',\n        'twin',\n        'commands',\n        'modify',\n        '/features',\n        {},\n        {\n            temperature:  { properties: { value: temp,  status: tempStatus,   lastUpdated: ts } },\n            humidity:     { properties: { value: hum,   status: humStatus,     lastUpdated: ts } },\n            compressor:   { properties: { status: comp,                        lastUpdated: ts } },\n            energy:       { properties: { consumption: eng, efficiency: engEff, lastUpdated: ts } },\n            connectivity: { properties: { connected: true, lastSeen: ts } }\n        }\n    );\n}",
+        "outgoingScript": "function mapFromDittoProtocol(namespace, name, group, channel, criterion, action, path, dittoHeaders, value, status, extra) {\n    return null;\n}"
+      }
+    },
+    "javascript-alert-mapping": {
+      "mappingEngine": "JavaScript",
+      "options": {
+        "outgoingScript": "function mapFromDittoProtocol(namespace, name, group, channel, criterion, action, path, dittoHeaders, value, status, extra) {\n    if (!value) return null;\n    return {\n        textPayload: JSON.stringify({\n            unitId: name,\n            event: action,\n            path: path,\n            value: value,\n            timestamp: new Date().toISOString()\n        })\n    };\n}"
+      }
+    }
+  }
+}

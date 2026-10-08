@@ -272,6 +272,54 @@ body { background:var(--bg); color:var(--text); font-family:var(--font-sans); mi
       <div style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px" id="noAlerts">No alerts — all units operating normally</div>
     </div>
   </div>
+
+  <!-- AI Chat Panel + Anomaly Scores + Edge Nodes -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px">
+    <!-- AI Assistant Chat -->
+    <div>
+      <div class="section-head">
+        <span class="section-title">🤖 AI Fleet Intelligence</span>
+        <span id="agentStatus" style="font-size:11px;color:var(--text-muted)">Not configured</span>
+      </div>
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)">
+        <div id="chatMessages" style="height:200px;overflow-y:auto;margin-bottom:10px;display:flex;flex-direction:column;gap:8px">
+          <div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px">Ask the AI agent about your cold storage fleet</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="chatInput" placeholder="e.g., Which unit needs maintenance most urgently?"
+            style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-sans);outline:none"
+            onkeydown="if(event.key==='Enter')sendChat()" />
+          <button class="btn btn-primary" onclick="sendChat()">Ask</button>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="quickAsk('Which unit needs maintenance most urgently?')">Urgency Ranking</button>
+          <button class="btn btn-sm" onclick="quickAsk('What is the current status of all units?')">Fleet Status</button>
+          <button class="btn btn-sm" onclick="quickAsk('Show me anomaly scores for all units')">Anomaly Scores</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Anomaly Scores + Edge Nodes -->
+    <div>
+      <div class="section-head">
+        <span class="section-title">📊 Anomaly Scores</span>
+      </div>
+      <div id="anomalyPanel" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:16px">
+        <div id="anomalyScores" style="display:flex;flex-direction:column;gap:10px">
+          <div style="text-align:center;color:var(--text-muted);font-size:12px;padding:10px">No anomaly scores yet — Edge Anomaly Detector will populate this</div>
+        </div>
+      </div>
+
+      <div class="section-head" style="margin-top:16px">
+        <span class="section-title">🌐 Edge Nodes</span>
+      </div>
+      <div id="edgeNodesPanel" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)">
+        <div id="edgeNodes" style="display:flex;flex-direction:column;gap:8px">
+          <div style="text-align:center;color:var(--text-muted);font-size:12px;padding:10px">No edge nodes connected</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Toast container -->
@@ -588,6 +636,159 @@ socket.on('control_changed', (d) => {
   state.running = d.running; state.speed = d.speed;
   updateSimStatus();
   document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', parseFloat(b.dataset.speed) === d.speed));
+});
+
+// ─── AI Chat ───
+let agentEnabled = false;
+let chatHistory = [];
+
+function sendChat() {
+  const input = document.getElementById('chatInput');
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = '';
+  addChatMessage('user', question);
+  addChatMessage('loading', 'Thinking...');
+  fetch('/api/agent/query', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({question, sessionId: 'webapp'})
+  })
+  .then(r => r.json())
+  .then(d => {
+    // Remove loading message
+    const msgs = document.getElementById('chatMessages');
+    const loading = msgs.querySelector('[data-loading]');
+    if (loading) loading.remove();
+    addChatMessage('agent', d.response || 'No response', d.toolCalls);
+  })
+  .catch(e => {
+    const msgs = document.getElementById('chatMessages');
+    const loading = msgs.querySelector('[data-loading]');
+    if (loading) loading.remove();
+    addChatMessage('agent', 'Error: ' + e.message, []);
+  });
+}
+
+function quickAsk(q) {
+  document.getElementById('chatInput').value = q;
+  sendChat();
+}
+
+function addChatMessage(role, text, tools) {
+  const msgs = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5;' +
+    (role === 'user' ? 'background:var(--bg-accent);color:var(--text);margin-left:20px' :
+     role === 'loading' ? 'text-align:center;color:var(--text-muted);font-style:italic' :
+     'background:var(--bg);border:1px solid var(--border);margin-right:20px');
+  if (role === 'loading') div.setAttribute('data-loading', 'true');
+  div.textContent = text;
+  if (tools && tools.length > 0) {
+    const toolDiv = document.createElement('div');
+    toolDiv.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-muted);font-family:var(--font-mono)';
+    toolDiv.textContent = 'Tools called: ' + tools.map(t => t.tool).join(', ');
+    div.appendChild(toolDiv);
+  }
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ─── Anomaly Scores ───
+function updateAnomalyScores(scores) {
+  const panel = document.getElementById('anomalyScores');
+  if (!scores || Object.keys(scores).length === 0) return;
+  let html = '';
+  for (const [unitId, s] of Object.entries(scores)) {
+    const edgeScore = s.edgeScore !== null && s.edgeScore !== undefined ? (s.edgeScore * 100).toFixed(0) : '—';
+    const cloudScore = s.cloudScore !== null && s.cloudScore !== undefined ? (s.cloudScore * 100).toFixed(0) : '—';
+    const risk = s.riskLevel || 'unknown';
+    const riskColor = risk === 'critical' ? 'var(--danger)' : risk === 'high' ? 'var(--danger)' : risk === 'warning' ? 'var(--warning)' : 'var(--success)';
+    html += `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <span style="font-weight:700;font-family:var(--font-mono)">${unitId}</span>
+          <span style="font-size:10px;color:${riskColor};margin-left:6px;font-weight:600;text-transform:uppercase">${risk}</span>
+        </div>
+        <div style="font-size:11px;font-family:var(--font-mono)">
+          <span style="color:var(--accent)">Edge: ${edgeScore}</span>
+          <span style="color:var(--text-muted);margin:0 4px">|</span>
+          <span style="color:var(--purple)">Cloud: ${cloudScore}</span>
+        </div>
+      </div>`;
+  }
+  panel.innerHTML = html;
+}
+
+// ─── Edge Nodes ───
+function updateEdgeNodes(nodes) {
+  const panel = document.getElementById('edgeNodes');
+  if (!nodes || Object.keys(nodes).length === 0) return;
+  let html = '';
+  for (const [nodeId, n] of Object.entries(nodes)) {
+    const isOnline = n.status === 'online';
+    const lastSeen = n.lastSeen ? new Date(n.lastSeen).toLocaleTimeString() : 'unknown';
+    html += `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <span class="dot ${isOnline?'dot-live':'dot-off'}" style="margin-right:6px"></span>
+          <span style="font-weight:600;font-size:12px">${nodeId}</span>
+        </div>
+        <span style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono)">${isOnline ? 'Online' : 'Offline'} · ${lastSeen}</span>
+      </div>`;
+  }
+  panel.innerHTML = html;
+}
+
+// ─── Twin Updates (from Ditto WebSocket) ───
+socket.on('twin_update', (d) => {
+  // Update unit card with Ditto-pushed data
+  if (d.unitId && d.temperature !== undefined && d.temperature !== null) {
+    updateUnit({
+      unitId: d.unitId,
+      temperature: d.temperature,
+      humidity: d.humidity,
+      compressorStatus: d.compressorStatus,
+      energyConsumption: d.energyConsumption,
+      healthStatus: d.healthStatus || 'healthy',
+      timestamp: d.timestamp
+    });
+  }
+  // Update anomaly scores if present
+  if (d.anomalyEdgeScore !== undefined || d.anomalyCloudScore !== undefined) {
+    state.anomalyScores = state.anomalyScores || {};
+    state.anomalyScores[d.unitId] = {
+      edgeScore: d.anomalyEdgeScore,
+      cloudScore: d.anomalyCloudScore,
+      riskLevel: d.anomalyRisk
+    };
+    updateAnomalyScores(state.anomalyScores);
+  }
+});
+
+// ─── Anomaly Score Updates ───
+socket.on('anomaly_score_update', (d) => {
+  state.anomalyScores = state.anomalyScores || {};
+  state.anomalyScores[d.unitId] = d;
+  updateAnomalyScores(state.anomalyScores);
+});
+
+// ─── Edge Node Updates ───
+socket.on('edge_node_update', (d) => {
+  state.edgeNodes = state.edgeNodes || {};
+  state.edgeNodes[d.nodeId] = d;
+  updateEdgeNodes(state.edgeNodes);
+});
+
+// ─── Init handler — check agent + anomaly + edge config ───
+socket.on('init', (d) => {
+  // ... existing init code stays ...
+  agentEnabled = d.agentEnabled || false;
+  const agentStat = document.getElementById('agentStatus');
+  if (agentEnabled) { agentStat.textContent = 'AI Agent Ready'; agentStat.style.color = 'var(--success)'; }
+  else { agentStat.textContent = 'Agent not configured'; agentStat.style.color = 'var(--text-muted)'; }
+  if (d.anomalyScores) updateAnomalyScores(d.anomalyScores);
+  if (d.edgeNodes) updateEdgeNodes(d.edgeNodes);
 });
 </script>
 </body>
