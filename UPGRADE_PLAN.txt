@@ -1,0 +1,1085 @@
+================================================================================
+SMART COLD STORAGE DIGITAL TWIN
+COMPLETE UPGRADE PLAN v2.0
+THREE-LAPTOP + GCP AGENTIC AI ARCHITECTURE
+================================================================================
+
+Document Version  : 2.0
+Supersedes        : UPGRADE_PLAN.txt v1.0
+Hardware Setup    : 3 Windows Laptops on different LANs + GCP Cloud
+Current State     : Single-machine Docker Compose stack (working)
+Target State      : Distributed Edge Compute Network with Agentic AI
+
+
+================================================================================
+SECTION 1: THE BIG PICTURE — WHAT THIS BECOMES
+================================================================================
+
+The current system is a fully functional cold storage monitoring stack on one
+machine. It works. But it is architecturally a single point of failure, uses
+only static threshold-based alerting, and has no intelligence beyond "value
+exceeds X → send email."
+
+This upgrade transforms it into a genuinely distributed, intelligent, and
+autonomous system with three distinct layers:
+
+  EDGE LAYER (3 laptops, different LANs)
+    Each laptop represents a physical warehouse location. It runs a complete
+    self-contained edge stack. It processes sensor data locally, detects
+    anomalies without internet, stores data locally, and operates fully
+    independently if cloud connectivity is lost.
+
+  ORCHESTRATION LAYER (ioFog ECN + GCP Control Plane)
+    Eclipse ioFog ties the three laptops together as a single manageable
+    Edge Compute Network. The ioFog Controller runs on a GCP VM (free tier).
+    From one CLI command on any laptop, you can deploy or update microservices
+    on all three nodes simultaneously. The ioFog message bus provides encrypted
+    inter-node communication regardless of NAT or firewall.
+
+  CLOUD INTELLIGENCE LAYER (GCP — BigQuery + Vertex AI + ADK + Gemini)
+    GCP holds the permanent data lake (BigQuery), runs ML-based anomaly
+    detection (BigQuery ML with TimesFM), and hosts the Agentic AI system
+    built with Google's Agent Development Kit (ADK) on Vertex AI Agent Engine.
+    The agent is not a chatbot — it is an autonomous maintenance engineer that
+    proactively monitors the fleet, reasons across data sources, explains its
+    findings, and takes actions.
+
+The result is a system where each technology is used at its architectural
+maximum, not just as a checkbox:
+
+  Eclipse Ditto  → Not just a REST API. WebSocket-based live twin change
+                   notifications drive real-time UI updates. Ditto's
+                   Connectivity API bridges MQTT to twin updates natively.
+                   The digital twin model is the single source of truth
+                   consumed by every layer including the AI agent.
+
+  InfluxDB       → Not just storage. Edge InfluxDB acts as the local
+                   time-series buffer for offline resilience. Central
+                   InfluxDB (GCP) serves Grafana dashboards. Flux
+                   continuous tasks run anomaly pre-processing locally
+                   before data reaches BigQuery.
+
+  Node-RED       → Not just routing. Custom function nodes implement the
+                   edge intelligence pipeline: sensor validation, local
+                   anomaly scoring, Ditto twin update, ioFog message bus
+                   publishing, and adaptive threshold management driven
+                   by feedback from the cloud AI layer.
+
+  ioFog          → Not just container orchestration. The ioFog message bus
+                   is the encrypted data highway between all three laptops
+                   and GCP. It handles NAT traversal automatically. Remote
+                   microservice deployment from one CLI manages all three
+                   edge nodes simultaneously.
+
+  GCP            → Not just storage. BigQuery ML runs AI.DETECT_ANOMALIES
+                   on multi-variate time series. Google ADK builds a
+                   multi-agent system with specialized sub-agents. Vertex
+                   AI Agent Engine hosts it as a scalable managed service.
+                   Pub/Sub provides event-driven triggers. Looker Studio
+                   delivers shareable dashboards to non-technical stakeholders.
+
+
+================================================================================
+SECTION 2: HARDWARE ROLE ASSIGNMENT (FINAL)
+================================================================================
+
+You have 3 Windows laptops on 3 different home/mobile LANs. Each represents
+a physically separate cold storage warehouse. They all connect outbound to GCP.
+No inbound connectivity required on any laptop.
+
+────────────────────────────────────────────────────────────────────────────────
+LAPTOP 1: Your current development machine
+WAREHOUSE: Warehouse Alpha
+UNITS: CS-01, CS-02
+ROLE: Primary Edge Node + Development Console + Webapp Host
+────────────────────────────────────────────────────────────────────────────────
+
+This machine already runs the current system. In the upgrade it becomes
+Edge Node Alpha. The current docker-compose stack is restructured as ioFog
+microservices. Additionally it hosts the Web Controller (webapp on port 8088)
+which becomes the main operator interface for the entire fleet.
+
+Microservices running (deployed via ioFog from GCP Controller):
+  - iofog-agent              (the local ioFog runtime, Docker container)
+  - mosquitto                (MQTT broker for CS-01 and CS-02)
+  - node-red                 (edge processing pipeline)
+  - influxdb-edge            (7-day local buffer, offline resilience)
+  - edge-anomaly-detector    (NEW: Python, per-unit anomaly scoring)
+  - ditto-sync-agent         (NEW: pushes twin state to GCP Ditto)
+  - bigquery-streamer        (NEW: batches data to GCP BigQuery)
+  - webapp                   (the interactive Web Controller UI)
+
+────────────────────────────────────────────────────────────────────────────────
+LAPTOP 2: Second Windows laptop
+WAREHOUSE: Warehouse Beta
+UNITS: CS-03
+ROLE: Edge Node Beta
+────────────────────────────────────────────────────────────────────────────────
+
+A lightweight edge node. No heavy UI services. Just the processing pipeline
+and data forwarding. Docker Desktop for Windows required.
+
+Microservices running (deployed via ioFog from GCP Controller):
+  - iofog-agent
+  - mosquitto                (MQTT broker for CS-03)
+  - node-red
+  - influxdb-edge            (7-day local buffer)
+  - edge-anomaly-detector
+  - ditto-sync-agent
+  - bigquery-streamer
+
+────────────────────────────────────────────────────────────────────────────────
+LAPTOP 3: Third Windows laptop
+WAREHOUSE: Warehouse Gamma (future expansion / monitoring console)
+UNITS: None assigned yet (or CS-04 if you want to expand)
+ROLE: Operations Console + Monitoring Mirror + AI Chat Interface
+────────────────────────────────────────────────────────────────────────────────
+
+This machine runs the monitoring and AI interaction layer. Operators at
+a central operations office would use this machine to monitor all warehouses
+and interact with the AI agent.
+
+Microservices running (deployed via ioFog):
+  - iofog-agent
+  - grafana                  (reads from GCP InfluxDB + BigQuery)
+  - ai-chat-client           (NEW: web UI to query the Gemini agent on GCP)
+  - fleet-dashboard          (NEW: React app showing fleet health, AI scores)
+  - ditto-ui-client          (NEW: Eclipse Ditto UI for twin browsing)
+
+────────────────────────────────────────────────────────────────────────────────
+GCP CLOUD LAYER (always-on, no machine needed on your end)
+────────────────────────────────────────────────────────────────────────────────
+
+  e2-micro VM (free tier, always-on):
+    - ioFog Controller        (manages all 3 laptop agents)
+    - Eclipse Ditto cluster   (the authoritative digital twin registry)
+    - Central InfluxDB        (aggregated data from all edge nodes)
+    - Grafana (GCP-hosted)    (central dashboard, publicly shareable URL)
+
+  Managed GCP services:
+    - BigQuery dataset         (permanent sensor data lake, anomaly results)
+    - BigQuery ML              (TimesFM model, AI.DETECT_ANOMALIES)
+    - Pub/Sub topics           (event-driven triggers for agent)
+    - Vertex AI Agent Engine   (hosts the deployed ADK agent)
+    - Gemini 2.0 Flash         (the LLM behind the agent)
+    - Cloud Scheduler          (triggers periodic agent runs + reports)
+    - Cloud Storage            (agent artifacts, exported reports)
+    - Looker Studio            (shareable dashboard, no login required)
+
+
+================================================================================
+SECTION 3: FULL ARCHITECTURE DATA FLOW
+================================================================================
+
+SENSOR DATA PATH (real-time):
+
+  Physical/Simulated Sensor
+        │ MQTT publish
+        ▼
+  Mosquitto (on each laptop)
+        │ MQTT subscribe
+        ▼
+  Node-RED edge pipeline:
+    Step 1: Parse + validate JSON payload
+    Step 2: Write to local InfluxDB (immediate, always works offline)
+    Step 3: Publish to ioFog message bus topic "sensor-readings"
+    Step 4: Async: HTTP PATCH to local Ditto-sync queue
+        │
+        ├─── ioFog message bus ───► Ditto Sync Agent
+        │                              │ PATCH via HTTPS
+        │                              ▼
+        │                           GCP: Eclipse Ditto (cloud)
+        │                              │ WebSocket change notification
+        │                              ▼
+        │                           All subscribers (Webapp, Fleet Dashboard)
+        │
+        └─── ioFog message bus ───► BigQuery Streamer
+                                       │ Storage Write API (batch)
+                                       ▼
+                                    GCP: BigQuery (cold_storage_lake dataset)
+
+ANOMALY DETECTION PATH (dual-layer):
+
+  Layer 1 - Edge (runs every 30 seconds, works offline):
+    Edge Anomaly Detector queries local InfluxDB
+        │ z-score + correlation analysis
+        ▼
+    Anomaly score (0.0 to 1.0) per unit
+        │
+        ├── if score > 0.4: publish "anomaly-event" to ioFog bus
+        │       │
+        │       └── Ditto Sync Agent updates GCP Ditto maintenance feature
+        │
+        └── if score > 0.65: trigger local alert in Node-RED
+                │
+                └── MQTT alert topic → email via SMTP
+
+  Layer 2 - Cloud (runs hourly via Cloud Scheduler):
+    BigQuery ML: SELECT * FROM AI.DETECT_ANOMALIES(...)
+        │ per-unit learned baseline (TimesFM model)
+        ▼
+    Results written to BigQuery anomaly_scores table
+        │
+        └── Pub/Sub message triggers ADK Monitoring Agent
+                │ reasons across anomaly scores + twin state + history
+                ▼
+            Proactive maintenance notification if warranted
+                │
+                └── Pub/Sub → Node-RED on affected laptop → local alert
+
+DIGITAL TWIN LIVE UPDATE PATH:
+
+  Sensor reading arrives at Node-RED
+        │
+        ▼
+  Ditto Sync Agent sends PATCH to GCP Eclipse Ditto
+        │
+        ▼
+  Ditto emits WebSocket change notification
+        │
+        ├─► Webapp (Laptop 1): gauge animates in real time
+        ├─► Fleet Dashboard (Laptop 3): card updates
+        └─► AI Chat Interface: context refreshes
+
+  This means the webapp doesn't poll Ditto. Ditto pushes changes to the
+  webapp via WebSocket. Every gauge update is event-driven, not polled.
+
+AI AGENT PATH (two modes):
+
+  Mode 1 - Conversational (on demand):
+    User types question in AI Chat Interface (Laptop 3 or Webapp on Laptop 1)
+        │ HTTP POST /api/agent/query
+        ▼
+    GCP: Vertex AI Agent Engine (ADK-based multi-agent system)
+        │ Root agent receives question
+        │ decides which sub-agent to delegate to
+        ▼
+    Sub-agents run tool calls:
+        ├── QueryAgent: BigQuery SQL queries for historical analysis
+        ├── TwinAgent: Ditto REST API for current state
+        ├── AnomalyAgent: BigQuery anomaly_scores table
+        └── AlertAgent: BigQuery alerts_history table
+        │
+        ▼
+    Root agent synthesizes sub-agent results
+        │
+        ▼
+    Response streamed back to UI
+
+  Mode 2 - Autonomous (proactive, every hour):
+    Cloud Scheduler triggers Pub/Sub message
+        │
+        ▼
+    GCP: Monitoring Sub-agent wakes up
+        │ calls AnomalyAgent for all 3 units
+        │ calls TwinAgent for current state
+        │ calls AlertAgent for last 24h alerts
+        ▼
+    If anything notable found:
+        │ root agent generates proactive finding
+        ▼
+    Pub/Sub notification published
+        │
+        ├─► Webapp toast notification (via ioFog bus → Laptop 1)
+        └─► Email (daily summary via Fleet Reporter at 7 AM)
+
+
+================================================================================
+SECTION 4: BEST USE OF ECLIPSE DITTO
+================================================================================
+
+Eclipse Ditto is used at its full capability, not just as a REST API endpoint.
+
+1. DITTO AS THE LIVE TWIN REGISTRY (REST + WebSocket)
+   GCP-hosted Ditto holds authoritative state for CS-01, CS-02, CS-03.
+   The webapp connects via WebSocket to Ditto's WebSocket binding:
+     ws://ditto-host:8080/ws/2
+   It subscribes to twin change events:
+     START-SEND-EVENTS
+   Every time a PATCH arrives (from any edge node), Ditto emits a change
+   notification over this WebSocket. The webapp receives it and updates
+   the gauge immediately. No polling. Pure event-driven.
+
+2. DITTO CONNECTIVITY API (MQTT BRIDGE)
+   Instead of Node-RED manually patching Ditto via HTTP, we configure
+   Ditto's built-in MQTT connection using the Connectivity API:
+     POST /api/2/connections
+   Ditto subscribes directly to coldstorage/+/data on Mosquitto.
+   When a sensor message arrives, Ditto updates the twin automatically.
+   Node-RED is freed from the Ditto PATCH responsibility entirely.
+   This is the architecturally correct way to integrate MQTT and Ditto.
+
+3. DITTO THING MODEL EVOLUTION
+   Each Thing gets two new features beyond the current 7:
+     - "anomaly" feature:
+         properties: { edgeScore, cloudScore, lastEvaluated, riskLevel }
+         Updated by Edge Anomaly Detector (edge score) and
+         BigQuery ML (cloud score) independently.
+     - "history" feature:
+         properties: { alertCount24h, avgTempLast7d, avgEnergyLast7d,
+                       lastMaintenanceAction, maintenanceActionCount }
+         Updated by the Ditto Sync Agent from BigQuery summaries.
+   This makes each Thing a genuinely rich digital representation, not just
+   a current-state snapshot.
+
+4. DITTO SEARCH API
+   The fleet dashboard (Laptop 3) uses Ditto's RQL search to query across
+   all twins simultaneously:
+     GET /api/2/search/things?filter=gt(features/anomaly/properties/edgeScore,0.6)
+   Returns all units currently at elevated anomaly risk. One query, all units.
+   The AI agent also uses this to identify at-risk units without BigQuery.
+
+5. DITTO MESSAGES (BIDIRECTIONAL COMMANDS)
+   When the Gemini agent decides a unit needs immediate inspection, it sends
+   a Ditto message to the affected unit:
+     POST /api/2/things/org.eclipse.ditto:CS-02/inbox/messages/maintenance-required
+   Node-RED on Laptop 1 subscribes to this topic via Ditto's WebSocket.
+   It receives the command and triggers a local alert (audio, UI flash).
+   This is Ditto being used bidirectionally — not just "read twin state"
+   but "send command to physical asset via digital twin."
+
+
+================================================================================
+SECTION 5: BEST USE OF NODE-RED
+================================================================================
+
+Node-RED at the edge is not just a data router. It becomes an adaptive
+processing pipeline with four distinct flows.
+
+FLOW 1: SENSOR INGESTION + VALIDATION (existing, enhanced)
+  - MQTT input: coldstorage/+/data
+  - Parse + type-check JSON
+  - Validate ranges (temp -40 to 60, humidity 0-100, etc.)
+  - Enrich with nodeId, warehouseId, ingestionTimestamp
+  - Fan out to: InfluxDB write, ioFog bus publish, condition check
+
+FLOW 2: ADAPTIVE THRESHOLD MANAGEMENT (new)
+  - Every 15 minutes, query local InfluxDB for the unit's rolling 7-day
+    mean and standard deviation per field
+  - Store as flow context: mean_temp_CS01, stddev_temp_CS01, etc.
+  - Condition check now uses these adaptive thresholds:
+      warning if value > mean + 2*stddev
+      critical if value > mean + 3*stddev
+  - Falls back to static thresholds if insufficient data (< 100 readings)
+  - This makes condition detection unit-specific from day 3 onward.
+    CS-01 that naturally runs warmer won't false-alarm constantly.
+
+FLOW 3: IOFOG MESSAGE BUS BRIDGE (new)
+  - Custom function node that wraps outgoing data in ioFog SDK message format
+  - Publishes sensor-readings to ioFog bus (received by BigQuery Streamer)
+  - Subscribes to cloud-feedback topic from ioFog bus
+    (received from BigQuery ML results forwarded by GCP)
+  - When cloud feedback arrives, updates flow context with calibrated thresholds
+  - This creates the edge-cloud feedback loop: cloud ML → Node-RED adaptation
+
+FLOW 4: PREDICTIVE MAINTENANCE SIGNAL AGGREGATION (new)
+  - Runs every 5 minutes
+  - Combines: local InfluxDB trend data + edge anomaly score + cloud score
+    (if available from last cloud sync)
+  - Computes composite maintenance score:
+      0.4 * edge_anomaly_score +
+      0.4 * cloud_anomaly_score +
+      0.2 * threshold_breach_frequency_last_24h
+  - If composite score > 0.7 for 3 consecutive runs (15 minutes): fires
+    predictive maintenance alert via MQTT and ioFog bus
+  - Updates Ditto maintenance feature with composite score
+  - This is the final fusion of edge ML + cloud ML + rule-based signals.
+
+
+================================================================================
+SECTION 6: BEST USE OF INFLUXDB
+================================================================================
+
+InfluxDB operates at two levels: edge (per laptop) and central (GCP).
+
+EDGE INFLUXDB (on each laptop, 7-day retention):
+  Purpose: Offline resilience buffer and local analytics source
+  Buckets:
+    sensor_data     (7 days) — raw readings for local processing
+    alerts_local    (30 days) — locally generated alerts
+    anomaly_local   (30 days) — edge anomaly detector outputs
+
+  Flux continuous tasks (run every hour locally):
+    Task 1: downsample_hourly
+      Averages sensor_data to 1-hour resolution, stores in sensor_data
+      (keeps 7 days of full-res + 30 days of 1-hour res)
+    Task 2: compute_baselines
+      Calculates 7-day rolling mean + stddev per unitId per field
+      Writes result to a "baselines" measurement
+      Node-RED reads this measurement to get adaptive thresholds.
+
+  Key use: The edge InfluxDB is the data source for the Edge Anomaly Detector.
+  No internet needed. Query local data, compute score, act locally.
+  When internet returns, the BigQuery Streamer reads the buffered data
+  and syncs any missed records to GCP BigQuery.
+
+CENTRAL INFLUXDB (GCP e2-micro VM, 90-day retention):
+  Purpose: Fleet-wide real-time visualization in Grafana
+  Buckets:
+    cold_storage    (90 days) — aggregated from all edge nodes
+    alerts          (365 days) — all alerts from all units
+    anomaly_scores  (365 days) — both edge and cloud scores
+    maintenance     (365 days) — maintenance events and actions
+
+  Data arrives via BigQuery Streamer → Cloud Pub/Sub → central InfluxDB writer
+  (a lightweight Python service on the GCP VM)
+
+  Grafana reads from this central InfluxDB for all dashboards.
+  This gives Grafana one data source for the entire fleet, not three.
+
+
+================================================================================
+SECTION 7: BEST USE OF GRAFANA
+================================================================================
+
+Grafana is deployed at two levels: Grafana Cloud (free tier) for public/shared
+access and central Grafana (GCP VM) for the operations team.
+
+DASHBOARD 1: Fleet Overview (auto-refreshes every 10 seconds)
+  - Temperature gauges for all 3 units (green/yellow/red thresholds)
+  - Energy consumption time series (all units on one chart)
+  - Compressor status donut chart
+  - Active alerts table (from central InfluxDB alerts bucket)
+  - Edge Anomaly Score gauges (0.0 to 1.0, color-coded)
+  - Cloud Anomaly Score gauges (from BigQuery via Grafana BigQuery plugin)
+
+DASHBOARD 2: Per-Unit Deep Dive (templated, unit selector variable)
+  - 24-hour temperature history with adaptive threshold bands shown as
+    annotations (the bands change as baselines update)
+  - Compressor ON/OFF timeline (state timeline panel)
+  - Energy consumption with 7-day moving average overlay
+  - Humidity trend with safe range band
+  - Maintenance score history (30-day trend showing degradation)
+  - Alert frequency bar chart (how many alerts per day, last 30 days)
+
+DASHBOARD 3: Anomaly Intelligence (BigQuery data source)
+  - BigQuery ML anomaly probability per unit over time (line chart)
+  - Correlation matrix: temperature vs energy anomaly scores
+  - Edge score vs Cloud score comparison (scatter plot)
+  - Top anomalous periods (table, sorted by anomaly probability)
+  - This dashboard is only possible because BigQuery data is in Grafana.
+    It shows the AI layer's perspective on the fleet.
+
+DASHBOARD 4: Maintenance Timeline
+  - Timeline of all maintenance events across all units
+  - Predictive vs reactive maintenance ratio
+  - Mean time between anomaly detection and maintenance action
+  - Energy efficiency trend (baseline-normalized)
+
+KEY GRAFANA INNOVATIONS:
+  1. Grafana reads from BOTH InfluxDB (real-time) AND BigQuery (ML results).
+     Two data sources in one dashboard, unified view.
+  2. Adaptive threshold bands as annotations: Node-RED writes current
+     adaptive thresholds to InfluxDB. Grafana displays them as dynamic
+     bands on the temperature chart. The band moves as the system learns.
+  3. Grafana Alerting integration: Grafana alerts trigger Pub/Sub messages
+     which the ADK agent processes. Grafana → cloud AI in one chain.
+
+
+================================================================================
+SECTION 8: THE AGENTIC AI SYSTEM (GOOGLE ADK + VERTEX AI)
+================================================================================
+
+This is the most innovative component. Built using Google ADK (Agent
+Development Kit), production-ready as of May 2025, deployed on Vertex AI
+Agent Engine.
+
+ARCHITECTURE: MULTI-AGENT SYSTEM
+
+  Root Agent: Fleet Intelligence Coordinator
+    Role: Receives all queries and proactive triggers. Decides which
+          sub-agent(s) to delegate to. Synthesizes their outputs.
+          Uses Gemini 2.0 Flash as the underlying model.
+
+  Sub-Agent 1: Historical Analyst
+    Role: Analyzes historical sensor data patterns.
+    Tools:
+      - query_sensor_history(unitId, metric, start_time, end_time)
+        → BigQuery SQL query on cold_storage_lake.sensor_readings
+      - compute_trend(unitId, metric, window_hours)
+        → Returns slope of metric over window (positive/negative/flat)
+      - compare_to_baseline(unitId, metric)
+        → Returns deviation from unit's 30-day rolling mean
+      - find_similar_patterns(unitId, current_pattern)
+        → BigQuery ML pattern matching against historical data
+
+  Sub-Agent 2: Digital Twin Inspector
+    Role: Gets current state from Eclipse Ditto.
+    Tools:
+      - get_twin_state(unitId)
+        → REST call to GCP Ditto /api/2/things/org.eclipse.ditto:{unitId}
+      - get_all_twins_summary()
+        → Ditto search API returns health status of all units
+      - get_twin_maintenance_feature(unitId)
+        → Returns maintenance score, recommendation, last calculated
+      - get_twin_anomaly_feature(unitId)
+        → Returns edge score, cloud score, risk level
+
+  Sub-Agent 3: Anomaly Investigator
+    Role: Deep-dives into anomaly events and their context.
+    Tools:
+      - get_anomaly_scores(unitId, hours)
+        → BigQuery query on anomaly_scores table
+      - get_bigquery_ml_anomalies(unitId, days)
+        → Runs AI.DETECT_ANOMALIES SQL query on demand
+      - get_alert_history(unitId, hours)
+        → BigQuery query on alerts_history table
+      - correlate_anomaly_with_conditions(unitId, anomaly_timestamp)
+        → Gets all sensor readings within ±30 min of anomaly event
+
+  Sub-Agent 4: Maintenance Advisor
+    Role: Makes maintenance recommendations based on all evidence.
+    Tools:
+      - get_maintenance_history(unitId)
+        → BigQuery query on maintenance_events table
+      - calculate_remaining_useful_life(unitId)
+        → Heuristic based on anomaly trend slope + historical MTBF
+      - rank_units_by_maintenance_urgency()
+        → Queries all units' anomaly scores + maintenance history
+      - generate_maintenance_checklist(unitId, issue_type)
+        → Returns structured inspection checklist based on detected pattern
+
+  Sub-Agent 5: Fleet Reporter (runs on schedule)
+    Role: Autonomous daily report generation. Not conversational.
+    Triggered by: Cloud Scheduler at 07:00 daily
+    Actions:
+      1. Calls rank_units_by_maintenance_urgency()
+      2. Calls get_anomaly_scores() for each unit (last 24h)
+      3. Calls get_alert_history() for each unit (last 24h)
+      4. Calls compute_trend() for temperature and energy (7d)
+      5. Root agent synthesizes into structured report
+      6. Report stored in Cloud Storage (PDF via reportlab)
+      7. Email sent via SMTP to operator list
+      8. Report summary published to Pub/Sub → Webapp toast notification
+
+WHAT THE AGENT DOES PROACTIVELY (every hour):
+
+  Cloud Scheduler → Pub/Sub → Agent Engine trigger
+        │
+        ▼
+  Anomaly Investigator: get_anomaly_scores() for all units
+        │
+  If any unit has anomaly score > 0.65:
+        │
+        ▼
+  Historical Analyst: compute_trend() for that unit (last 6h)
+        │
+        ▼
+  Digital Twin Inspector: get_twin_state() for that unit
+        │
+        ▼
+  Anomaly Investigator: correlate_anomaly_with_conditions()
+        │
+        ▼
+  Maintenance Advisor: calculate_remaining_useful_life()
+        │
+        ▼
+  Root Agent synthesizes: "CS-02 has a 0.73 anomaly score driven by
+    temperature rising at 0.08°C/hour while energy consumption increased
+    18% vs 7-day baseline. Compressor runtime at 78% vs normal 52%.
+    Pattern matches pre-failure signature observed 3 months ago.
+    Recommended inspection within 36 hours. Confidence: HIGH."
+        │
+        ▼
+  Published to: Pub/Sub → Node-RED on Laptop 1 → Webapp toast
+                       → Email to operator
+                       → Ditto twin message (maintenance-required)
+
+CONVERSATIONAL EXAMPLES:
+
+  Q: "Why did CS-02 alert last night?"
+  Agent calls: get_alert_history(CS-02, 24h), get_anomaly_scores(CS-02, 24h),
+               correlate_anomaly_with_conditions(CS-02, alert_timestamp)
+  A: "CS-02 triggered temperature_warning_high at 02:43 IST. Temperature
+      rose from 5.8°C to 8.4°C over 28 minutes, a rate of 0.09°C/min.
+      During this period energy consumption spiked from 2.4kW to 3.9kW and
+      compressor runtime was 94%. The anomaly resolved by 04:10 IST.
+      This pattern is consistent with a brief door-open event. The unit
+      returned to baseline without maintenance intervention. Recommend
+      checking door seal integrity on next inspection."
+
+  Q: "Rank all units by maintenance urgency"
+  Agent calls: rank_units_by_maintenance_urgency(), get_twin_state() x3
+  A: "1. CS-02 (HIGH): Anomaly score 0.71, energy +22% vs baseline,
+         compressor runtime elevated for 5 consecutive days.
+      2. CS-01 (LOW): Anomaly score 0.19, all metrics within normal range.
+      3. CS-03 (LOW): Anomaly score 0.22, slight humidity drift +3% but
+         within acceptable range."
+
+  Q: "Is the energy increase on CS-02 a real problem or seasonal?"
+  Agent calls: query_sensor_history(CS-02, energyConsumption, -30d, now),
+               query_sensor_history(CS-02, energyConsumption, -395d, -365d),
+               compare_to_baseline(CS-02, energyConsumption)
+  A: "Comparing current energy consumption against the same period last year:
+      current average is 2.89kW vs 2.41kW last year — a 20% increase that
+      is not explained by seasonal variation. Last year's same-period
+      consumption was also stable. This suggests genuine equipment
+      degradation rather than seasonal load increase. Recommend maintenance."
+
+
+================================================================================
+SECTION 9: IOFOG ECN DEPLOYMENT STRUCTURE
+================================================================================
+
+ECN NAME: smart-cold-storage-ecn
+
+CONTROL PLANE (GCP e2-micro VM):
+  - ioFog Controller v3.x
+  - Manages all 3 laptop agents
+  - Accessible on: 51121 (agent registration), 51120 (REST API)
+  - iofogctl connects to this from any laptop
+
+AGENTS:
+  agent-alpha:  Laptop 1 (ioFog Agent as Docker container on Windows)
+  agent-beta:   Laptop 2 (ioFog Agent as Docker container on Windows)
+  agent-gamma:  Laptop 3 (ioFog Agent as Docker container on Windows)
+
+  ioFog Agent on Windows runs as Docker container:
+    eclipse/iofog-agent:latest
+    Requires: Docker Desktop with Linux containers, privileged mode,
+              /var/run/docker.sock mounted (WSL2 Docker socket on Windows)
+
+MESSAGE BUS ROUTES:
+  Route 1: node-red (alpha) → bigquery-streamer (alpha)
+    Sensor data from CS-01, CS-02 → BigQuery
+  Route 2: node-red (beta) → bigquery-streamer (beta)
+    Sensor data from CS-03 → BigQuery
+  Route 3: edge-anomaly-detector (alpha) → ditto-sync-agent (alpha)
+    Anomaly scores for CS-01, CS-02 → GCP Ditto
+  Route 4: edge-anomaly-detector (beta) → ditto-sync-agent (beta)
+    Anomaly scores for CS-03 → GCP Ditto
+  Route 5: GCP Pub/Sub → node-red (alpha) [via ioFog REST webhook]
+    Cloud AI feedback → edge adaptive thresholds for Laptop 1
+  Route 6: GCP Pub/Sub → node-red (beta) [via ioFog REST webhook]
+    Cloud AI feedback → edge adaptive thresholds for Laptop 2
+
+MICROSERVICE CATALOG (Docker images used across all agents):
+  iofog/mosquitto:2.0-iofog       (Mosquitto with ioFog message bus plugin)
+  iofog/nodered:latest-iofog      (Node-RED with ioFog SDK pre-installed)
+  influxdb:2.7                    (standard image)
+  smart-cooling/edge-anomaly:1.0  (custom build, ~120MB Python image)
+  smart-cooling/ditto-sync:1.0    (custom build, ~80MB Python image)
+  smart-cooling/bq-streamer:1.0   (custom build, ~100MB Python image)
+  smart-cooling/fleet-dashboard:1.0 (custom build, React app served by nginx)
+
+APPLICATION SPECS (iofogctl YAML):
+
+  app-alpha.yaml: Deploys to agent-alpha
+    Services: mosquitto, node-red, influxdb-edge, edge-anomaly-detector,
+              ditto-sync-agent, bigquery-streamer, webapp
+    Environment per service: unitIds=[CS-01,CS-02], warehouseId=alpha,
+                              gcpProjectId, bigqueryDataset, dittoUrl,
+                              influxdbToken, mqttBroker=mosquitto:1883
+
+  app-beta.yaml: Deploys to agent-beta
+    Services: mosquitto, node-red, influxdb-edge, edge-anomaly-detector,
+              ditto-sync-agent, bigquery-streamer
+    Environment per service: unitIds=[CS-03], warehouseId=beta, ...
+
+  app-gamma.yaml: Deploys to agent-gamma
+    Services: grafana, fleet-dashboard, ai-chat-client, ditto-ui-client
+
+
+================================================================================
+SECTION 10: GCP SERVICES DETAIL
+================================================================================
+
+PROJECT SETUP:
+  Project ID: smart-cold-storage (or choose your own)
+  Region: asia-south1 (Mumbai) recommended for India-based deployment
+  Billing: $300 credit, estimated $3-10/month usage
+
+BIGQUERY (FREE TIER + MINIMAL COST):
+  Dataset: cold_storage_lake
+
+  Tables:
+    sensor_readings
+      Fields: unitId STRING, warehouseId STRING, temperature FLOAT,
+              humidity FLOAT, compressorStatus STRING,
+              energyConsumption FLOAT, timestamp TIMESTAMP,
+              nodeId STRING, ingestedAt TIMESTAMP
+      Partition: BY DATE(timestamp) — dramatically reduces query costs
+      Cluster: BY unitId — improves per-unit query performance
+
+    alerts_history
+      Fields: unitId, alertType, severity, message, value, threshold,
+              timestamp, resolvedAt, resolvedBy
+      Partition: BY DATE(timestamp)
+
+    anomaly_scores
+      Fields: unitId, edgeScore FLOAT, cloudScore FLOAT, riskLevel STRING,
+              evaluatedAt TIMESTAMP, modelVersion STRING,
+              explanation STRING
+      Partition: BY DATE(evaluatedAt)
+
+    maintenance_events
+      Fields: unitId, eventType, description, performedBy,
+              performedAt TIMESTAMP, nextScheduled DATE,
+              agentRecommended BOOL, agentConfidence FLOAT
+
+    fleet_reports
+      Fields: reportDate DATE, reportText STRING, unitsSummary JSON,
+              topRisks JSON, generatedBy STRING, emailedTo STRING
+
+  BIGQUERY ML:
+    Model: cold_storage_lake.timesfm_anomaly
+    Type: Built-in TimesFM via AI.DETECT_ANOMALIES function
+    No training required — uses Google's pre-trained foundation model
+    Scheduled query (Cloud Scheduler, every 1 hour):
+      INSERT INTO cold_storage_lake.anomaly_scores
+      SELECT unitId, is_anomaly, anomaly_probability,
+             CURRENT_TIMESTAMP() as evaluatedAt
+      FROM AI.DETECT_ANOMALIES(
+        (SELECT timestamp, temperature, humidity, energyConsumption, unitId
+         FROM cold_storage_lake.sensor_readings
+         WHERE timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)),
+        STRUCT(0.85 AS anomaly_prob_threshold,
+               'timestamp' AS time_series_timestamp_col,
+               'unitId' AS time_series_id_col)
+      )
+
+VERTEX AI AGENT ENGINE:
+  Hosts the ADK multi-agent system as a managed endpoint.
+  Access: REST API (POST /v1/projects/{project}/locations/{region}/
+                    reasoningEngines/{id}:query)
+  The Webapp (Laptop 1) and AI Chat Client (Laptop 3) call this endpoint.
+  Authentication: Service account key, passed securely.
+  Model: gemini-2.0-flash-001 (best balance of speed and intelligence)
+
+CLOUD PUB/SUB TOPICS:
+  smart-cooling-sensor-events    — backup event stream (if ioFog bus unavailable)
+  smart-cooling-anomaly-alerts   — anomaly detected events
+  smart-cooling-agent-triggers   — triggers periodic agent runs
+  smart-cooling-notifications    — agent findings → webapp notifications
+
+CLOUD SCHEDULER JOBS:
+  Every 1 hour:   trigger anomaly detection + agent monitoring pass
+  Every 24 hours (07:00 IST): trigger Fleet Reporter
+  Every 6 hours:  trigger BigQuery ML AI.DETECT_ANOMALIES
+
+CLOUD STORAGE BUCKETS:
+  smart-cooling-reports    — daily PDF reports
+  smart-cooling-artifacts  — agent model artifacts, exports
+
+LOOKER STUDIO:
+  Connected to BigQuery cold_storage_lake dataset.
+  Shareable URL — no Grafana login needed, send to anyone.
+  Shows: fleet health summary, anomaly trends, maintenance history.
+
+ESTIMATED GCP COSTS (monthly after free tier):
+  BigQuery storage (50GB): ~$1.00
+  BigQuery queries (500GB): ~$2.50
+  Vertex AI Gemini Flash (1M tokens): ~$0.15-0.30
+  e2-micro VM (1 instance, free tier): $0.00
+  Cloud Scheduler (3 jobs): $0.00 (free tier)
+  Pub/Sub (< 10GB): $0.00 (free tier)
+  Cloud Storage (< 5GB): $0.00 (free tier)
+  TOTAL ESTIMATE: ~$4-5/month
+  $300 credit coverage: ~60 months
+
+
+================================================================================
+SECTION 11: NEW MICROSERVICES TO BUILD
+================================================================================
+
+MICROSERVICE 1: Edge Anomaly Detector
+  Path: iofog/microservices/edge-anomaly-detector/
+  Language: Python 3.11
+  Base image: python:3.11-slim (~120MB)
+  Key logic:
+    - Query local InfluxDB for last 60 readings per unit (every 30 sec)
+    - Load baseline from InfluxDB "baselines" measurement (computed by Flux task)
+    - Compute z-score for temperature, humidity, energyConsumption
+    - Compute Pearson correlation between temperature and energy trends
+    - Compute compressor cycle frequency deviation
+    - Weighted score: 0.4*temp_zscore + 0.3*energy_zscore + 0.2*correlation + 0.1*cycle_freq
+    - Normalize to 0.0-1.0
+    - Publish score to ioFog message bus
+    - On score > 0.65: trigger local alert via HTTP to Node-RED webhook
+
+MICROSERVICE 2: Ditto Sync Agent
+  Path: iofog/microservices/ditto-sync-agent/
+  Language: Python 3.11
+  Key logic:
+    - Subscribe to ioFog message bus "anomaly-scores" topic
+    - Subscribe to ioFog message bus "sensor-readings" topic (for twin updates)
+    - On sensor reading: PATCH GCP Ditto thing via HTTPS
+    - On anomaly score: PATCH Ditto "anomaly" feature
+    - Buffer up to 2000 events in SQLite if Ditto unreachable
+    - Retry with exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, then 60s
+
+MICROSERVICE 3: BigQuery Streamer
+  Path: iofog/microservices/bigquery-streamer/
+  Language: Python 3.11
+  Key logic:
+    - Subscribe to ioFog "sensor-readings" topic
+    - Batch: 200 records OR 30 seconds whichever comes first
+    - Write via BigQuery Storage Write API (committed mode)
+    - Local SQLite buffer for offline resilience
+    - On reconnect: detect gap in BigQuery, backfill from local InfluxDB
+    - Also writes to central InfluxDB (via InfluxDB write API) for Grafana
+
+MICROSERVICE 4: Fleet Dashboard (Laptop 3)
+  Path: iofog/microservices/fleet-dashboard/
+  Language: React (served by nginx)
+  Key features:
+    - WebSocket connection to GCP Eclipse Ditto for live twin updates
+    - Fleet overview grid: 3 unit cards, live gauges
+    - BigQuery anomaly score display (fetched via REST API)
+    - AI Chat panel: sends queries to Vertex AI Agent Engine
+    - Edge node status panel: ioFog agent heartbeat status
+    - Alert timeline: last 50 alerts from central InfluxDB
+
+MICROSERVICE 5: AI Chat Interface
+  Path: iofog/microservices/ai-chat-client/
+  This can be part of the Fleet Dashboard React app or standalone.
+  Calls POST /api/agent/query on the GCP Agent Engine.
+  Streams response token by token (server-sent events).
+  Shows which tools the agent called (transparent reasoning).
+  Maintains conversation history (multi-turn).
+
+MICROSERVICE 6: Fleet Reporter
+  Path: iofog/microservices/fleet-reporter/
+  Language: Python 3.11
+  Triggered by Cloud Scheduler via Pub/Sub
+  Calls Vertex AI Agent Engine to generate report
+  Formats as HTML email + PDF (reportlab)
+  Stores PDF in Cloud Storage
+  Sends email to operator list via SMTP
+
+
+================================================================================
+SECTION 12: IMPLEMENTATION PHASES
+================================================================================
+
+PHASE 1: IOFOG INFRASTRUCTURE (Days 1-3)
+─────────────────────────────────────────
+1. Create GCP project, enable APIs (BigQuery, Vertex AI, Pub/Sub, Compute)
+2. Spin up e2-micro VM on GCP, install ioFog Controller
+3. Install Docker Desktop on Laptops 2 and 3 (already on Laptop 1)
+4. Deploy ioFog Agent as Docker container on all 3 laptops
+5. Connect all 3 agents to GCP Controller
+6. Verify ECN health: iofogctl get all
+7. Convert current Laptop 1 docker-compose to ioFog app-alpha.yaml
+8. Deploy app-beta.yaml (lightweight stack) to Laptop 2
+9. Deploy app-gamma.yaml (monitoring console) to Laptop 3
+10. Verify all existing functionality works through ioFog
+
+PHASE 2: DITTO CONNECTIVITY API + LIVE UPDATES (Days 4-5)
+───────────────────────────────────────────────────────────
+11. Move Eclipse Ditto cluster to GCP e2-micro VM (alongside ioFog Controller)
+12. Configure Ditto Connectivity API to subscribe to Mosquitto MQTT
+    (removes Node-RED's manual PATCH responsibility)
+13. Add "anomaly" and "history" features to all 3 Thing definitions
+14. Update Webapp to use WebSocket connection to GCP Ditto
+    (replace 10-second polling with event-driven push)
+15. Verify: trigger scenario on Laptop 1 → Ditto WebSocket event → gauge animates
+
+PHASE 3: EDGE ANOMALY DETECTOR (Days 6-7)
+───────────────────────────────────────────
+16. Build Edge Anomaly Detector Python microservice
+17. Write Flux continuous tasks for baseline computation in InfluxDB
+18. Configure Node-RED adaptive threshold flow (Flow 2, Flow 3)
+19. Deploy to agent-alpha and agent-beta via iofogctl
+20. Test: normal scenario → low score, door_open scenario → high score
+
+PHASE 4: BIGQUERY + CENTRAL INFLUXDB (Days 8-9)
+──────────────────────────────────────────────────
+21. Create BigQuery dataset cold_storage_lake with all 5 tables
+22. Build BigQuery Streamer microservice
+23. Deploy to agent-alpha and agent-beta
+24. Verify data flows: Laptop 1/2 → BigQuery within 60 seconds
+25. Set up Central InfluxDB on GCP VM
+26. Configure BigQuery Streamer to also write to central InfluxDB
+27. Configure central Grafana to read from central InfluxDB
+28. Test fleet overview dashboard: data from all 3 laptops in one view
+
+PHASE 5: BIGQUERY ML ANOMALY DETECTION (Day 10)
+─────────────────────────────────────────────────
+29. Create Cloud Scheduler job to run AI.DETECT_ANOMALIES hourly
+30. Verify anomaly scores written to anomaly_scores BigQuery table
+31. Create Pub/Sub topic for anomaly alerts
+32. Configure Grafana BigQuery plugin to read anomaly scores
+33. Add anomaly score panel to Grafana dashboards
+34. Test: run door_open scenario, verify BigQuery ML detects anomaly
+
+PHASE 6: ADK MULTI-AGENT SYSTEM (Days 11-14)
+─────────────────────────────────────────────
+35. Install Google ADK: pip install google-adk
+36. Build sub-agents: Historical Analyst, Twin Inspector, Anomaly Investigator,
+    Maintenance Advisor (each as an adk.Agent with tool definitions)
+37. Build Root Agent that orchestrates sub-agents
+38. Test locally: adk web (ADK's built-in dev UI)
+39. Deploy to Vertex AI Agent Engine:
+    adk deploy agent --project=smart-cold-storage --region=asia-south1
+40. Add /api/agent/query endpoint to REST API on Laptop 1
+    (proxies to Vertex AI Agent Engine)
+41. Add AI Chat panel to Webapp
+42. Test: ask "which unit needs maintenance?" → verify agent uses real data
+
+PHASE 7: FLEET REPORTER + LOOKER STUDIO (Day 15)
+──────────────────────────────────────────────────
+43. Build Fleet Reporter microservice
+44. Set up Cloud Scheduler job at 07:00 daily
+45. Configure Cloud Storage bucket for PDF storage
+46. Create Looker Studio dashboard connected to BigQuery
+47. Share Looker Studio URL (no login required)
+
+PHASE 8: INTEGRATION TESTING + DOCUMENTATION (Days 16-17)
+────────────────────────────────────────────────────────────
+48. End-to-end test: door_open on Laptop 2 (different LAN)
+    Verify: MQTT → Node-RED → InfluxDB (local) → BigQuery Streamer → BigQuery
+    Verify: Edge Anomaly Detector fires → Ditto Sync → GCP Ditto updated
+    Verify: BigQuery ML detects anomaly (within 1 hour)
+    Verify: ADK agent proactive notification appears in Webapp
+    Verify: Gemini agent explains the anomaly correctly
+49. Offline test: disconnect Laptop 2 from internet
+    Verify: local processing continues
+    Verify: buffered data syncs when reconnected
+50. Update all documentation files
+
+
+================================================================================
+SECTION 13: FILES TO CREATE
+================================================================================
+
+iofog/
+├── controlplane.yaml             ioFog Controller on GCP VM
+├── agents.yaml                   3 laptop agent definitions
+├── routes.yaml                   Message bus route definitions
+├── apps/
+│   ├── app-alpha.yaml            Microservices for Laptop 1
+│   ├── app-beta.yaml             Microservices for Laptop 2
+│   └── app-gamma.yaml            Microservices for Laptop 3
+└── microservices/
+    ├── edge-anomaly-detector/
+    │   ├── app.py                Main anomaly scoring logic
+    │   ├── influx_client.py      InfluxDB query helpers
+    │   ├── iofog_client.py       ioFog message bus helpers
+    │   ├── Dockerfile
+    │   └── requirements.txt
+    ├── ditto-sync-agent/
+    │   ├── app.py
+    │   ├── buffer.py             SQLite offline buffer
+    │   ├── Dockerfile
+    │   └── requirements.txt
+    ├── bigquery-streamer/
+    │   ├── app.py
+    │   ├── buffer.py             SQLite offline buffer + gap fill
+    │   ├── Dockerfile
+    │   └── requirements.txt
+    ├── fleet-dashboard/          React app
+    │   ├── src/
+    │   │   ├── App.jsx
+    │   │   ├── components/
+    │   │   │   ├── UnitCard.jsx          Animated gauge card
+    │   │   │   ├── AnomalyGauge.jsx      Edge + cloud score display
+    │   │   │   ├── AIChatPanel.jsx       Gemini agent chat
+    │   │   │   ├── EdgeNodeStatus.jsx    ioFog agent heartbeats
+    │   │   │   └── AlertTimeline.jsx     Recent alerts
+    │   │   └── hooks/
+    │   │       ├── useDittoWebSocket.js  Live twin updates
+    │   │       └── useAgentQuery.js      ADK agent calls
+    │   ├── Dockerfile
+    │   └── package.json
+    └── fleet-reporter/
+        ├── app.py                Report generation + email
+        ├── report_template.html  HTML email template
+        ├── Dockerfile
+        └── requirements.txt
+
+gcp/
+├── setup.sh                      Full GCP setup script
+├── bigquery/
+│   ├── create_tables.sql         All 5 table schemas
+│   ├── anomaly_detection.sql     Hourly AI.DETECT_ANOMALIES query
+│   └── scheduled_queries.json    Cloud Scheduler job configs
+├── agents/                       ADK multi-agent system
+│   ├── root_agent.py             Root orchestrating agent
+│   ├── historical_analyst.py     Sub-agent 1
+│   ├── twin_inspector.py         Sub-agent 2
+│   ├── anomaly_investigator.py   Sub-agent 3
+│   ├── maintenance_advisor.py    Sub-agent 4
+│   ├── fleet_reporter_agent.py   Sub-agent 5
+│   ├── tools/
+│   │   ├── bigquery_tools.py     BigQuery query tool definitions
+│   │   ├── ditto_tools.py        Ditto REST API tool definitions
+│   │   └── influxdb_tools.py     Central InfluxDB tool definitions
+│   ├── deploy.py                 Deploy to Vertex AI Agent Engine
+│   └── requirements.txt
+└── pubsub/
+    ├── create_topics.sh          Pub/Sub topic creation
+    └── subscriptions.json        Subscription configurations
+
+
+================================================================================
+SECTION 14: INFORMATION NEEDED BEFORE CODING STARTS
+================================================================================
+
+1. GCP project ID (or I'll use "smart-cold-storage")
+2. Preferred GCP region (asia-south1 for India?)
+3. Do Laptops 2 and 3 have Docker Desktop installed already?
+4. What are you using as the GCP service account (new one or existing)?
+5. Do you want the Fleet Dashboard on Laptop 3 as a separate React app or
+   integrated into the existing webapp (Laptop 1's Flask+SocketIO app)?
+
+
+================================================================================
+SECTION 15: WHAT MAKES THIS A WORLD-CLASS STUDENT PROJECT
+================================================================================
+
+1. TRUE MULTI-SITE EDGE: Three machines on genuinely different networks.
+   Not simulated. Real NAT traversal via ioFog. This is how actual industrial
+   IoT deployments work. Most student projects run everything on localhost.
+
+2. OFFLINE RESILIENCE DEMONSTRATED: Pulling the network cable on Laptop 2
+   and showing that CS-03 continues to be monitored, and that data syncs
+   perfectly when reconnected. This is a fundamental edge computing property
+   that most projects claim but never demonstrate.
+
+3. EVENT-DRIVEN DIGITAL TWIN: Ditto WebSocket live notifications replacing
+   polling. Gauges update because Ditto pushed a change event, not because
+   a timer fired. This is how production twin systems work.
+
+4. MULTI-AGENT AI OVER REAL DATA: Not a chatbot with hardcoded responses.
+   Five specialized sub-agents using function calling against real BigQuery
+   data. Every answer is backed by a SQL query result. The agent can be
+   wrong about analysis but it cannot hallucinate numbers — the numbers
+   come from real queries.
+
+5. EDGE-CLOUD FEEDBACK LOOP: BigQuery ML results feed back to edge detectors
+   which adjust their thresholds. The system improves over time without human
+   intervention. This is closed-loop learning at the edge.
+
+6. IOFOG REMOTE DEPLOYMENT: One iofogctl command deploys an updated
+   microservice to all three laptops simultaneously. No SSH, no manual
+   docker pull. This is what DevOps for edge looks like.
+
+7. DITTO BIDIRECTIONAL COMMANDS: The AI agent sends maintenance commands
+   to physical units via digital twin messages. The physical unit (simulated
+   by Node-RED) receives and acts on them. Twin goes both directions.
+
+8. ADAPTIVE THRESHOLDS: The system learns what "normal" is for each unit.
+   Threshold bands in Grafana move as the system learns. This eliminates
+   false positives that plague static threshold systems.
+
+9. EVERY LAYER USED AT ITS MAXIMUM:
+   InfluxDB: local buffer + central aggregation + Flux continuous tasks
+   Node-RED: adaptive processing + ioFog message bus + cloud feedback
+   Ditto: REST + WebSocket + Connectivity API + Messages API
+   Grafana: multi-source (InfluxDB + BigQuery) + adaptive annotations
+   ioFog: ECN + message bus + remote microservice deployment
+   GCP: BigQuery ML + ADK multi-agent + Agent Engine + Pub/Sub + Scheduler
+
+
+================================================================================
+END OF PLAN v2.0
+================================================================================
+New microservices       : 6
+New GCP services        : 7 (BigQuery, BigQuery ML, Vertex AI Agent Engine,
+                             Pub/Sub, Cloud Scheduler, Cloud Storage, Looker)
+ADK sub-agents          : 5
+ioFog agent machines    : 3
+Implementation days     : ~17
+Estimated monthly cost  : ~$4-5/month
+$300 credit coverage    : ~60 months

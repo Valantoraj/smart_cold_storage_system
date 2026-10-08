@@ -41,6 +41,10 @@ logs/
 .env
 .env.local
 
+# GCP credentials — never commit these
+gcp/service-account.json
+gcp/*.json
+
 # Node-RED runtime files and credentials (contains secrets)
 nodered/flows_cred.json
 nodered/.config.nodes.json
@@ -57,3 +61,15 @@ nodered/node_modules/
 # Test outputs
 test-results/
 coverage/
+
+# Temporary MQTT test files
+msg.json
+
+# ioFog Agent runtime data
+iofog-agent-data/
+
+# nodered data folder runtime files (keep flows but not runtime state)
+nodered/data/.config.*
+nodered/data/*.backup
+nodered/data/node_modules/
+nodered/data/package-lock.json

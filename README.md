@@ -16,7 +16,9 @@ The Smart Cold Storage Digital Twin helps operators:
 ## 🏗️ Architecture
 
 ```
-Sensors → MQTT/Mosquitto → Node-RED → InfluxDB + Eclipse Ditto → Grafana → Alerts
+Sensors → MQTT/Mosquitto → Node-RED → InfluxDB + Eclipse Ditto → Grafana → Alerts → Email
+
+Web Controller (port 8088) → MQTT → Node-RED → InfluxDB + Ditto → Grafana → Alerts → Email
 ```
 
 ### Technology Stack
@@ -29,6 +31,7 @@ Sensors → MQTT/Mosquitto → Node-RED → InfluxDB + Eclipse Ditto → Grafana
 | **InfluxDB** | Historical time-series data storage |
 | **Eclipse Ditto** | Digital twin representation and current state management |
 | **Grafana** | Visualization, dashboards, trends, and monitoring |
+| **Web Controller** | Interactive web UI to control simulation, trigger scenarios, and visualize units in real-time |
 | **REST API** | Programmatic interaction with services and digital twins |
 | **Docker** | Containerized and reproducible deployment |
 
@@ -78,6 +81,28 @@ THEN generate predictive-maintenance warning
 
 This rule-based approach provides early warnings before equipment failures occur.
 
+## 🖥️ Web Controller
+
+The web controller at `http://localhost:8088` is an interactive web application that replaces the plain CLI simulator with a visual control center.
+
+### Features
+
+- **Live unit visualization**: Three cold storage unit cards with animated temperature gauges, humidity bars, compressor status icons (spinning when ON), and energy meters
+- **Scenario triggers**: Click any of 8 conditions per unit — normal, temperature rising, temperature fluctuating, high energy, humidity drift, equipment degradation, door open, compressor failure
+- **Real-time feedback**: When you trigger a scenario, the unit's visual representation changes immediately — gauges shift, compressor behavior changes, energy meters react
+- **Speed control**: Run the simulation at 1x, 2x, 5x, or 10x speed for faster testing
+- **Live alert feed**: Alerts appear in a scrolling feed with severity badges and toast notifications
+- **Sparkline charts**: Each unit shows a mini temperature trend of the last 30 readings
+- **Health indicators**: Each unit shows a health badge (healthy / warning / critical) with live status dots
+
+### How it works
+
+```
+Web Controller → MQTT → Node-RED → InfluxDB + Eclipse Ditto → Grafana → Email Alerts
+```
+
+The web controller publishes sensor data to the same MQTT topics as the CLI simulator. Everything downstream (Node-RED processing, InfluxDB storage, Ditto twin updates, condition detection, alerts, emails) works identically.
+
 ## 📁 Project Structure
 
 ```
@@ -101,7 +126,13 @@ smart_cooling/
 │   ├── dashboards/                # Monitoring dashboards
 │   └── provisioning/              # Dashboard provisioning
 ├── simulator/
-│   ├── sensor_simulator.py        # Sensor data simulation
+│   ├── sensor_simulator.py        # Sensor data simulation (CLI)
+│   └── requirements.txt           # Python dependencies
+├── webapp/
+│   ├── app.py                     # Flask + SocketIO web controller
+│   ├── Dockerfile                 # Web controller container
+│   ├── templates/
+│   │   └── index.html             # Interactive UI with live visualizations
 │   └── requirements.txt           # Python dependencies
 ├── api/
 │   ├── server.js                  # REST API server
@@ -141,7 +172,24 @@ chmod +x init-ditto.sh
 ./init-ditto.sh
 ```
 
-### 3. Run Sensor Simulator
+### 3. Run the Simulation
+
+**Option A: Interactive Web Controller (recommended)**
+
+The web controller runs automatically inside Docker. Open:
+
+```
+http://localhost:8088
+```
+
+You can:
+- View all 3 cold storage units with live animated gauges
+- Trigger any of 8 scenarios per unit (normal, temp rising, door open, etc.)
+- Control simulation speed (1x, 2x, 5x, 10x)
+- See live alerts and toast notifications
+- Start/stop the simulation
+
+**Option B: CLI Simulator**
 
 ```bash
 cd simulator
@@ -151,9 +199,10 @@ python sensor_simulator.py
 
 ### 4. Access the Services
 
-- **Grafana Dashboard**: http://localhost:3000 (admin/admin)
+- **Web Controller**: http://localhost:8088 (interactive simulation UI)
+- **Grafana Dashboard**: http://localhost:3000 (admin / Valan@2005)
 - **Node-RED Editor**: http://localhost:1880
-- **InfluxDB UI**: http://localhost:8086 (admin/adminpass123)
+- **InfluxDB UI**: http://localhost:8086 (admin / adminpass123)
 - **REST API**: http://localhost:3001/api
 - **Eclipse Ditto API**: http://localhost:8080
 
@@ -187,14 +236,26 @@ Open Grafana at http://localhost:3000 and navigate to "Cold Storage Overview" da
 Test the system using cURL:
 
 ```bash
-# Check storage unit CS-01 digital twin
-curl http://localhost:8080/api/2/things/org.eclipse.ditto:CS-01
+# Check system health
+curl http://localhost:3001/api/health
 
-# Get current status
+# List all storage units
+curl http://localhost:3001/api/storage
+
+# Check storage unit CS-01 digital twin (Ditto)
+curl http://localhost:8080/api/2/things/org.eclipse.ditto:CS-01 -H "x-ditto-pre-authenticated: nginx:ditto"
+
+# Get current status via REST API
 curl http://localhost:3001/api/storage/CS-01
 
 # Get historical data
-curl http://localhost:3001/api/storage/CS-01/history?hours=24
+curl http://localhost:3001/api/storage/CS-01/history?start=-24h
+
+# Check web controller status
+curl http://localhost:8088/api/status
+
+# Get active alerts
+curl http://localhost:3001/api/alerts?status=active
 ```
 
 ## 📈 Expected Outputs
@@ -211,8 +272,8 @@ curl http://localhost:3001/api/storage/CS-01/history?hours=24
 ## 🔄 Operational Flow Example
 
 **Normal Operation (CS-02):**
-1. Sensors measure temperature, humidity, compressor status, energy, ID, timestamp
-2. CS-02 publishes measurement through MQTT
+1. Web controller generates sensor readings for CS-02
+2. Readings published to MQTT topic `coldstorage/CS-02/data`
 3. Mosquitto receives the MQTT message
 4. Node-RED processes and validates the message
 5. Measurement written to InfluxDB for historical analysis
@@ -220,11 +281,12 @@ curl http://localhost:3001/api/storage/CS-01/history?hours=24
 7. Grafana displays current condition and historical trend
 
 **Abnormal Detection:**
-8. Temperature begins increasing: 4.0°C → 4.5°C → 5.2°C → 6.1°C → 7.0°C
-9. Compressor runtime and energy consumption increase
-10. Condition-detection logic identifies abnormal behavior
-11. System generates early warning and predictive-maintenance notification
-12. Operator inspects equipment before complete failure
+8. Operator clicks "Door Open" scenario on CS-02 in the web controller
+9. Temperature begins increasing: 4.0°C → 4.5°C → 5.2°C → 6.1°C → 7.0°C
+10. Compressor runtime and energy consumption increase
+11. Condition-detection logic in Node-RED identifies abnormal behavior
+12. Alert published to MQTT, stored in InfluxDB, and email sent to operator
+13. Grafana dashboard shows the alert in real-time
 
 ## 🛠️ Maintenance
 

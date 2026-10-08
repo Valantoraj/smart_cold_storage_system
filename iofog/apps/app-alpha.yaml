@@ -1,0 +1,252 @@
+---
+# =============================================================================
+# ioFog Application — Agent Alpha (Laptop 1, Warehouse Alpha)
+# Units: CS-01, CS-02
+# =============================================================================
+# Deploy: iofogctl deploy application -f iofog/apps/app-alpha.yaml
+# Update: iofogctl deploy application -f iofog/apps/app-alpha.yaml
+# Status: iofogctl get microservices --agent agent-alpha
+# Logs:   iofogctl logs microservice mosquitto-alpha
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: Application
+metadata:
+  name: app-alpha
+  namespace: smart-cooling
+
+spec:
+  microservices:
+
+    # ─── Mosquitto MQTT Broker ────────────────────────────────────────────────
+    - name: mosquitto-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: eclipse-mosquitto:2.0
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 1883
+            internal: 1883
+            protocol: tcp
+          - external: 9001
+            internal: 9001
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/mosquitto/config
+            containerDestination: /mosquitto/config
+            accessMode: r
+          - hostDestination: /opt/smart-cooling/mosquitto/data
+            containerDestination: /mosquitto/data
+            accessMode: rw
+          - hostDestination: /opt/smart-cooling/mosquitto/log
+            containerDestination: /mosquitto/log
+            accessMode: rw
+        env:
+          - key: TZ
+            value: UTC
+      config: {}
+
+    # ─── Node-RED Edge Processing ─────────────────────────────────────────────
+    - name: nodered-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: nodered/node-red:latest
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 1880
+            internal: 1880
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/nodered
+            containerDestination: /data
+            accessMode: rw
+        env:
+          - key: TZ
+            value: UTC
+          - key: NODE_ROLE
+            value: alpha
+          - key: UNIT_IDS
+            value: CS-01,CS-02
+          - key: WAREHOUSE_ID
+            value: alpha
+          - key: MQTT_BROKER
+            value: mosquitto-alpha:1883
+          - key: INFLUXDB_URL
+            value: http://influxdb-alpha:8086
+          - key: INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+          - key: INFLUXDB_ORG
+            value: smart_cooling
+          - key: INFLUXDB_BUCKET
+            value: cold_storage
+          - key: DITTO_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8080
+      config:
+        adaptiveThresholds: true
+        ioFogBusEnabled: true
+
+    # ─── InfluxDB Edge (7-day local buffer) ───────────────────────────────────
+    - name: influxdb-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: influxdb:2.7
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 8086
+            internal: 8086
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/influxdb/data
+            containerDestination: /var/lib/influxdb2
+            accessMode: rw
+          - hostDestination: /opt/smart-cooling/influxdb/config
+            containerDestination: /etc/influxdb2
+            accessMode: rw
+        env:
+          - key: DOCKER_INFLUXDB_INIT_MODE
+            value: setup
+          - key: DOCKER_INFLUXDB_INIT_USERNAME
+            value: admin
+          - key: DOCKER_INFLUXDB_INIT_PASSWORD
+            value: adminpass123
+          - key: DOCKER_INFLUXDB_INIT_ORG
+            value: smart_cooling
+          - key: DOCKER_INFLUXDB_INIT_BUCKET
+            value: cold_storage
+          - key: DOCKER_INFLUXDB_INIT_RETENTION
+            value: 7d
+          - key: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+            value: smart-cooling-super-secret-token
+      config: {}
+
+    # ─── Edge Anomaly Detector ────────────────────────────────────────────────
+    - name: edge-anomaly-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: smart-cooling/edge-anomaly-detector:1.0
+      container:
+        rootHostAccess: false
+        ports: []
+        env:
+          - key: UNIT_IDS
+            value: CS-01,CS-02
+          - key: WAREHOUSE_ID
+            value: alpha
+          - key: INFLUXDB_URL
+            value: http://influxdb-alpha:8086
+          - key: INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+          - key: INFLUXDB_ORG
+            value: smart_cooling
+          - key: SCAN_INTERVAL_SECONDS
+            value: "30"
+          - key: WARNING_THRESHOLD
+            value: "0.4"
+          - key: HIGH_THRESHOLD
+            value: "0.65"
+          - key: CRITICAL_THRESHOLD
+            value: "0.85"
+          - key: NODERED_WEBHOOK_URL
+            value: http://nodered-alpha:1880/webhook/anomaly
+      config:
+        enabled: true
+
+    # ─── Ditto Sync Agent ─────────────────────────────────────────────────────
+    - name: ditto-sync-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: smart-cooling/ditto-sync-agent:1.0
+      container:
+        rootHostAccess: false
+        ports: []
+        env:
+          - key: UNIT_IDS
+            value: CS-01,CS-02
+          - key: WAREHOUSE_ID
+            value: alpha
+          - key: DITTO_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8080
+          - key: DITTO_AUTH_HEADER
+            value: x-ditto-pre-authenticated
+          - key: DITTO_AUTH_VALUE
+            value: nginx:nodered
+          - key: BUFFER_SIZE
+            value: "2000"
+          - key: RETRY_BACKOFF_BASE
+            value: "1"
+      config: {}
+
+    # ─── BigQuery Streamer ────────────────────────────────────────────────────
+    - name: bq-streamer-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: smart-cooling/bigquery-streamer:1.0
+      container:
+        rootHostAccess: false
+        ports: []
+        volumes:
+          - hostDestination: /opt/smart-cooling/gcp
+            containerDestination: /app/gcp
+            accessMode: r
+        env:
+          - key: GCP_PROJECT_ID
+            value: ${GCP_PROJECT_ID}
+          - key: GCP_DATASET
+            value: cold_storage_lake
+          - key: GCP_REGION
+            value: asia-south1
+          - key: GCP_SERVICE_ACCOUNT_KEY
+            value: /app/gcp/service-account.json
+          - key: WAREHOUSE_ID
+            value: alpha
+          - key: UNIT_IDS
+            value: CS-01,CS-02
+          - key: BATCH_SIZE
+            value: "200"
+          - key: BATCH_TIMEOUT_SECONDS
+            value: "30"
+          - key: INFLUXDB_URL
+            value: http://influxdb-alpha:8086
+          - key: INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+          - key: CENTRAL_INFLUXDB_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8087
+          - key: CENTRAL_INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+      config: {}
+
+    # ─── Webapp (Web Controller) ──────────────────────────────────────────────
+    - name: webapp-alpha
+      agent:
+        name: agent-alpha
+      images:
+        x86: smart-cooling/webapp:1.0
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 8088
+            internal: 8088
+            protocol: tcp
+        env:
+          - key: MQTT_HOST
+            value: mosquitto-alpha
+          - key: MQTT_PORT
+            value: "1883"
+          - key: NODE_ROLE
+            value: alpha
+          - key: DITTO_WS_URL
+            value: ws://${IOFOG_CONTROLLER_IP}:8080/ws/2
+          - key: AGENT_API_URL
+            value: http://${IOFOG_CONTROLLER_IP}:9000
+          - key: IOFOG_CONTROLLER_URL
+            value: http://${IOFOG_CONTROLLER_IP}:51121
+      config: {}

@@ -1,0 +1,52 @@
+---
+# =============================================================================
+# ioFog Catalog — Smart Cold Storage Digital Twin
+# =============================================================================
+# Catalog items are reusable microservice templates.
+# Register custom images here before deploying applications.
+#
+# Deploy: iofogctl deploy catalog -f iofog/catalog.yaml
+# List:   iofogctl get catalog
+#
+# NOTE: Standard images (influxdb, mosquitto, nodered, grafana) are pulled
+# directly from Docker Hub. Only custom-built images need catalog entries.
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: CatalogList
+metadata:
+  name: smart-cold-storage-catalog
+  namespace: smart-cooling
+
+spec:
+  catalog:
+
+    - name: edge-anomaly-detector
+      description: "Edge ML anomaly scorer — z-score + correlation analysis"
+      x86: smart-cooling/edge-anomaly-detector:1.0
+      registryId: 1   # 1 = Docker Hub (public registry)
+
+    - name: ditto-sync-agent
+      description: "Buffers and syncs digital twin state to GCP Eclipse Ditto"
+      x86: smart-cooling/ditto-sync-agent:1.0
+      registryId: 1
+
+    - name: bigquery-streamer
+      description: "Batches edge sensor data and streams to GCP BigQuery"
+      x86: smart-cooling/bigquery-streamer:1.0
+      registryId: 1
+
+    - name: webapp
+      description: "Flask + SocketIO interactive simulation web controller"
+      x86: smart-cooling/webapp:1.0
+      registryId: 1
+
+    - name: fleet-dashboard
+      description: "React operations console with Ditto WebSocket + AI chat"
+      x86: smart-cooling/fleet-dashboard:1.0
+      registryId: 1
+
+    - name: fleet-reporter
+      description: "Daily AI-generated fleet health report via Gemini ADK"
+      x86: smart-cooling/fleet-reporter:1.0
+      registryId: 1

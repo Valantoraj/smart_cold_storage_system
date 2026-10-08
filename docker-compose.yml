@@ -1,10 +1,62 @@
 version: '3.8'
 
+# =============================================================================
+# Smart Cold Storage Digital Twin — Docker Compose
+# =============================================================================
+#
+# SINGLE MACHINE (current working setup — no profile needed):
+#   docker compose up -d
+#
+# MULTI-MACHINE DISTRIBUTED (Phase 1 upgrade):
+#   Laptop 1 (Warehouse Alpha, CS-01 + CS-02):
+#     docker compose --profile alpha up -d
+#
+#   Laptop 2 (Warehouse Beta, CS-03):
+#     docker compose --profile beta up -d
+#
+#   Laptop 3 (Operations Console):
+#     docker compose --profile gamma up -d
+#
+# NODE_ROLE environment variable drives profile selection automatically
+# if using setup.ps1. Set it in .env:
+#   NODE_ROLE=alpha   (Laptop 1)
+#   NODE_ROLE=beta    (Laptop 2)
+#   NODE_ROLE=gamma   (Laptop 3)
+# =============================================================================
+
 services:
-  # Mosquitto MQTT Broker
+
+  # ===========================================================================
+  # IOFOG AGENT
+  # Runs on ALL machines in distributed mode.
+  # Connects outbound to GCP ioFog Controller — no inbound ports needed.
+  # Profile: alpha, beta, gamma (not in single-machine mode)
+  # ===========================================================================
+  iofog-agent:
+    image: iofog/agent:3.4.0
+    container_name: smart_cooling_iofog_agent
+    profiles: [alpha, beta, gamma]
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - iofog_agent_data:/var/lib/iofog-agent
+      - iofog_agent_log:/var/log/iofog-agent
+    environment:
+      - IOFOG_CONTROLLER_URL=http://${IOFOG_CONTROLLER_IP:-localhost}:51121
+      - IOFOG_AGENT_NAME=${NODE_ROLE:-alpha}-agent
+    networks:
+      - smart_cooling_network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # MOSQUITTO MQTT BROKER
+  # Runs on: single-machine, alpha, beta
+  # NOT on gamma (operations console has no sensors)
+  # ===========================================================================
   mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: smart_cooling_mosquitto
+    profiles: ["", alpha, beta]
     ports:
       - "1883:1883"
       - "9001:9001"
@@ -21,10 +73,14 @@ services:
       timeout: 10s
       retries: 3
 
-  # InfluxDB Time-Series Database
+  # ===========================================================================
+  # INFLUXDB — EDGE LOCAL (7-day buffer on each edge laptop)
+  # Runs on: single-machine, alpha, beta
+  # ===========================================================================
   influxdb:
     image: influxdb:2.7
     container_name: smart_cooling_influxdb
+    profiles: ["", alpha, beta]
     ports:
       - "8086:8086"
     environment:
@@ -33,7 +89,7 @@ services:
       - DOCKER_INFLUXDB_INIT_PASSWORD=adminpass123
       - DOCKER_INFLUXDB_INIT_ORG=smart_cooling
       - DOCKER_INFLUXDB_INIT_BUCKET=cold_storage
-      - DOCKER_INFLUXDB_INIT_RETENTION=90d
+      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB_RETENTION:-90d}
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=smart-cooling-super-secret-token
     volumes:
       - influxdb_data:/var/lib/influxdb2
@@ -48,10 +104,111 @@ services:
       timeout: 10s
       retries: 3
 
-  # MongoDB for Eclipse Ditto
+  # ===========================================================================
+  # NODE-RED — EDGE PROCESSING PIPELINE
+  # Runs on: single-machine, alpha, beta
+  # NODE_ROLE env var controls which units it processes
+  # ===========================================================================
+  nodered:
+    build:
+      context: ./nodered
+      dockerfile: Dockerfile
+    container_name: smart_cooling_nodered
+    profiles: ["", alpha, beta]
+    ports:
+      - "1880:1880"
+    environment:
+      - TZ=UTC
+      - NODE_ROLE=${NODE_ROLE:-single}
+      - UNIT_IDS=${UNIT_IDS:-CS-01,CS-02,CS-03}
+      - WAREHOUSE_ID=${WAREHOUSE_ID:-local}
+      - MQTT_BROKER=mosquitto:1883
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=smart-cooling-super-secret-token
+      - INFLUXDB_ORG=smart_cooling
+      - INFLUXDB_BUCKET=cold_storage
+      - DITTO_URL=${DITTO_URL:-http://ditto-gateway:8080}
+      - ADAPTIVE_THRESHOLDS=${ADAPTIVE_THRESHOLDS:-false}
+      - IOFOG_BUS_ENABLED=${IOFOG_BUS_ENABLED:-false}
+    volumes:
+      - ./nodered:/data
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mosquitto
+      - influxdb
+    restart: unless-stopped
+    user: "0:0"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1880/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # WEBAPP — INTERACTIVE SIMULATION CONTROLLER
+  # Runs on: single-machine, alpha only
+  # ===========================================================================
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: smart_cooling_webapp
+    profiles: ["", alpha]
+    ports:
+      - "8088:8088"
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - NODE_ROLE=${NODE_ROLE:-single}
+      - DITTO_WS_URL=${DITTO_WS_URL:-ws://ditto-gateway:8080/ws/2}
+      - AGENT_API_URL=${AGENT_API_URL:-http://localhost:9000}
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  # ===========================================================================
+  # REST API
+  # Runs on: single-machine, alpha only
+  # ===========================================================================
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: smart_cooling_api
+    profiles: ["", alpha]
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=smart-cooling-super-secret-token
+      - INFLUXDB_ORG=smart_cooling
+      - INFLUXDB_BUCKET=cold_storage
+      - DITTO_URL=${DITTO_URL:-http://ditto-gateway:8080}
+      - MQTT_URL=mqtt://mosquitto:1883
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - influxdb
+      - mosquitto
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # MONGODB — for Eclipse Ditto
+  # Runs on: single-machine only (Ditto moves to GCP in distributed mode)
+  # ===========================================================================
   mongodb:
     image: mongo:6.0
     container_name: smart_cooling_mongodb
+    profiles: [""]
     environment:
       - MONGO_INITDB_ROOT_USERNAME=ditto
       - MONGO_INITDB_ROOT_PASSWORD=ditto
@@ -63,18 +220,17 @@ services:
     restart: unless-stopped
     command: --storageEngine wiredTiger
 
-  # Eclipse Ditto - Policies Service
+  # ===========================================================================
+  # ECLIPSE DITTO CLUSTER (5 services)
+  # Runs on: single-machine only
+  # In distributed mode, Ditto runs on GCP VM (managed by setup.sh)
+  # ===========================================================================
   ditto-policies:
     image: eclipse/ditto-policies:3.4.0
     container_name: smart_cooling_ditto_policies
     hostname: ditto-policies
-    environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
-      - DITTO_DEVOPS_SECURED=false
-      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
-      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
-      - REMOTE_HOSTNAME=ditto-policies
-      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
+    profiles: [""]
+    mem_limit: 512m
     networks:
       smart_cooling_network:
         aliases:
@@ -82,138 +238,164 @@ services:
     depends_on:
       - mongodb
     restart: unless-stopped
+    environment:
+      - BIND_HOSTNAME=0.0.0.0
+      - MONGO_DB_HOSTNAME=mongodb
+      - MONGO_DB_PORT=27017
+      - MONGO_DB_DATABASE=ditto
+      - MONGO_DB_USERNAME=ditto
+      - MONGO_DB_PASSWORD=ditto
+      - DITTO_DEVOPS_SECURED=false
+      - JAVA_TOOL_OPTIONS=-Xmx256m -Xms128m -XX:ActiveProcessorCount=2 -XX:+UseContainerSupport -XX:+UseStringDeduplication -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=150 -Dpekko.coordinated-shutdown.exit-jvm=on -Dpekko.cluster.shutdown-after-unsuccessful-join-seed-nodes=180s -Dpekko.cluster.failure-detector.threshold=15.0 -Dpekko.cluster.failure-detector.expected-response-after=10s -Dpekko.cluster.failure-detector.acceptable-heartbeat-pause=20s -Dpekko.cluster.downing-provider-class=
+    healthcheck:
+      test: curl --fail `hostname`:7626/alive || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 4
+      start_period: 120s
 
-  # Eclipse Ditto - Things Service
   ditto-things:
     image: eclipse/ditto-things:3.4.0
     container_name: smart_cooling_ditto_things
     hostname: ditto-things
-    environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
-      - DITTO_DEVOPS_SECURED=false
-      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
-      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
-      - REMOTE_HOSTNAME=ditto-things
-      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
+    profiles: [""]
+    mem_limit: 512m
     networks:
-      - smart_cooling_network
+      smart_cooling_network:
+        aliases:
+          - ditto-cluster
     depends_on:
       - mongodb
       - ditto-policies
     restart: unless-stopped
+    environment:
+      - BIND_HOSTNAME=0.0.0.0
+      - MONGO_DB_HOSTNAME=mongodb
+      - MONGO_DB_PORT=27017
+      - MONGO_DB_DATABASE=ditto
+      - MONGO_DB_USERNAME=ditto
+      - MONGO_DB_PASSWORD=ditto
+      - DITTO_DEVOPS_SECURED=false
+      - JAVA_TOOL_OPTIONS=-Xmx256m -Xms128m -XX:ActiveProcessorCount=2 -XX:+UseContainerSupport -XX:+UseStringDeduplication -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=150 -Dpekko.coordinated-shutdown.exit-jvm=on -Dpekko.cluster.shutdown-after-unsuccessful-join-seed-nodes=180s -Dpekko.cluster.failure-detector.threshold=15.0 -Dpekko.cluster.failure-detector.expected-response-after=10s -Dpekko.cluster.failure-detector.acceptable-heartbeat-pause=20s -Dpekko.cluster.downing-provider-class=
+    healthcheck:
+      test: curl --fail `hostname`:7626/alive || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 4
+      start_period: 120s
 
-  # Eclipse Ditto - Things Search Service
   ditto-things-search:
     image: eclipse/ditto-things-search:3.4.0
     container_name: smart_cooling_ditto_things_search
     hostname: ditto-things-search
-    environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
-      - DITTO_DEVOPS_SECURED=false
-      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
-      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
-      - REMOTE_HOSTNAME=ditto-things-search
-      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
+    profiles: [""]
+    mem_limit: 512m
     networks:
-      - smart_cooling_network
+      smart_cooling_network:
+        aliases:
+          - ditto-cluster
     depends_on:
       - mongodb
       - ditto-policies
     restart: unless-stopped
+    environment:
+      - BIND_HOSTNAME=0.0.0.0
+      - MONGO_DB_HOSTNAME=mongodb
+      - MONGO_DB_PORT=27017
+      - MONGO_DB_DATABASE=ditto
+      - MONGO_DB_USERNAME=ditto
+      - MONGO_DB_PASSWORD=ditto
+      - DITTO_DEVOPS_SECURED=false
+      - JAVA_TOOL_OPTIONS=-Xmx256m -Xms128m -XX:ActiveProcessorCount=2 -XX:+UseContainerSupport -XX:+UseStringDeduplication -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=150 -Dpekko.coordinated-shutdown.exit-jvm=on -Dpekko.cluster.shutdown-after-unsuccessful-join-seed-nodes=180s -Dpekko.cluster.failure-detector.threshold=15.0 -Dpekko.cluster.failure-detector.expected-response-after=10s -Dpekko.cluster.failure-detector.acceptable-heartbeat-pause=20s -Dpekko.cluster.downing-provider-class=
+    healthcheck:
+      test: curl --fail `hostname`:7626/alive || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 4
+      start_period: 120s
 
-  # Eclipse Ditto - Connectivity Service
   ditto-connectivity:
     image: eclipse/ditto-connectivity:3.4.0
     container_name: smart_cooling_ditto_connectivity
     hostname: ditto-connectivity
-    environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
-      - DITTO_DEVOPS_SECURED=false
-      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
-      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
-      - REMOTE_HOSTNAME=ditto-connectivity
-      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
+    profiles: [""]
+    mem_limit: 512m
     networks:
-      - smart_cooling_network
+      smart_cooling_network:
+        aliases:
+          - ditto-cluster
     depends_on:
       - mongodb
       - ditto-policies
     restart: unless-stopped
+    environment:
+      - BIND_HOSTNAME=0.0.0.0
+      - MONGO_DB_HOSTNAME=mongodb
+      - MONGO_DB_PORT=27017
+      - MONGO_DB_DATABASE=ditto
+      - MONGO_DB_USERNAME=ditto
+      - MONGO_DB_PASSWORD=ditto
+      - DITTO_DEVOPS_SECURED=false
+      - JAVA_TOOL_OPTIONS=-Xmx256m -Xms128m -XX:ActiveProcessorCount=2 -XX:+UseContainerSupport -XX:+UseStringDeduplication -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=150 -Dpekko.coordinated-shutdown.exit-jvm=on -Dpekko.cluster.shutdown-after-unsuccessful-join-seed-nodes=180s -Dpekko.cluster.failure-detector.threshold=15.0 -Dpekko.cluster.failure-detector.expected-response-after=10s -Dpekko.cluster.failure-detector.acceptable-heartbeat-pause=20s -Dpekko.cluster.downing-provider-class=
+    healthcheck:
+      test: curl --fail `hostname`:7626/alive || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 4
+      start_period: 120s
 
-  # Eclipse Ditto - Gateway Service
   ditto-gateway:
     image: eclipse/ditto-gateway:3.4.0
     container_name: smart_cooling_ditto_gateway
     hostname: ditto-gateway
+    profiles: [""]
+    mem_limit: 512m
     ports:
       - "8080:8080"
-    environment:
-      - MONGO_DB_URI=mongodb://ditto:ditto@mongodb:27017/ditto?authSource=admin
-      - DITTO_DEVOPS_SECURED=false
-      - ENABLE_PRE_AUTHENTICATION=true
-      - CLUSTER_SEED_NODES=akka://ditto-cluster@ditto-policies:2551
-      - AKKA_ACTOR_SYSTEM_NAME=ditto-cluster
-      - REMOTE_HOSTNAME=ditto-gateway
-      - JVM_CMD_ARGS_ENV=-Dpekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr=1
     networks:
-      - smart_cooling_network
+      smart_cooling_network:
+        aliases:
+          - ditto-cluster
     depends_on:
       - ditto-policies
       - ditto-things
       - ditto-things-search
       - ditto-connectivity
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Node-RED
-  nodered:
-    build:
-      context: ./nodered
-      dockerfile: Dockerfile
-    container_name: smart_cooling_nodered
-    ports:
-      - "1880:1880"
     environment:
-      - TZ=UTC
-    volumes:
-      - ./nodered:/data
-    networks:
-      - smart_cooling_network
-    depends_on:
-      - mosquitto
-      - influxdb
-      - ditto-gateway
-    restart: unless-stopped
-    user: "0:0"
+      - BIND_HOSTNAME=0.0.0.0
+      - ENABLE_PRE_AUTHENTICATION=true
+      - DITTO_DEVOPS_SECURED=false
+      - JAVA_TOOL_OPTIONS=-Xmx256m -Xms128m -XX:ActiveProcessorCount=2 -XX:+UseContainerSupport -XX:+UseStringDeduplication -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=150 -Dpekko.coordinated-shutdown.exit-jvm=on -Dpekko.cluster.shutdown-after-unsuccessful-join-seed-nodes=180s -Dpekko.cluster.failure-detector.threshold=15.0 -Dpekko.cluster.failure-detector.expected-response-after=10s -Dpekko.cluster.failure-detector.acceptable-heartbeat-pause=20s -Dpekko.cluster.downing-provider-class=
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:1880/"]
+      test: curl --fail `hostname`:7626/alive || exit 1
       interval: 30s
-      timeout: 10s
-      retries: 3
+      timeout: 15s
+      retries: 4
+      start_period: 120s
 
-  # Grafana
+  # ===========================================================================
+  # GRAFANA
+  # Runs on: single-machine, gamma (ops console)
+  # ===========================================================================
   grafana:
     image: grafana/grafana:10.2.0
     container_name: smart_cooling_grafana
+    profiles: ["", gamma]
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=Valan@2005
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-Valan@2005}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_INSTALL_PLUGINS=
+      - GF_INSTALL_PLUGINS=grafana-bigquery-datasource
+      - INFLUXDB_URL=${CENTRAL_INFLUXDB_URL:-http://influxdb:8086}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     networks:
       - smart_cooling_network
-    depends_on:
-      - influxdb
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
@@ -221,34 +403,89 @@ services:
       timeout: 10s
       retries: 3
 
-  # REST API Service
-  api:
+  # ===========================================================================
+  # NEW: EDGE ANOMALY DETECTOR
+  # Runs on: alpha, beta (edge nodes only)
+  # Built in Phase 2 — placeholder profile defined now
+  # ===========================================================================
+  edge-anomaly-detector:
     build:
-      context: ./api
+      context: ./iofog/microservices/edge-anomaly-detector
       dockerfile: Dockerfile
-    container_name: smart_cooling_api
-    ports:
-      - "3001:3001"
+    container_name: smart_cooling_edge_anomaly
+    profiles: [alpha, beta]
     environment:
-      - NODE_ENV=production
+      - UNIT_IDS=${UNIT_IDS:-CS-01,CS-02}
+      - WAREHOUSE_ID=${WAREHOUSE_ID:-alpha}
       - INFLUXDB_URL=http://influxdb:8086
       - INFLUXDB_TOKEN=smart-cooling-super-secret-token
       - INFLUXDB_ORG=smart_cooling
-      - INFLUXDB_BUCKET=cold_storage
-      - DITTO_URL=http://ditto-gateway:8080
-      - MQTT_URL=mqtt://mosquitto:1883
+      - SCAN_INTERVAL_SECONDS=30
+      - WARNING_THRESHOLD=0.4
+      - HIGH_THRESHOLD=0.65
+      - CRITICAL_THRESHOLD=0.85
+      - NODERED_WEBHOOK_URL=http://nodered:1880/webhook/anomaly
     networks:
       - smart_cooling_network
     depends_on:
       - influxdb
-      - ditto-gateway
-      - mosquitto
+      - nodered
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+
+  # ===========================================================================
+  # NEW: DITTO SYNC AGENT
+  # Runs on: alpha, beta (edge nodes only)
+  # Built in Phase 2 — placeholder profile defined now
+  # ===========================================================================
+  ditto-sync-agent:
+    build:
+      context: ./iofog/microservices/ditto-sync-agent
+      dockerfile: Dockerfile
+    container_name: smart_cooling_ditto_sync
+    profiles: [alpha, beta]
+    environment:
+      - UNIT_IDS=${UNIT_IDS:-CS-01,CS-02}
+      - WAREHOUSE_ID=${WAREHOUSE_ID:-alpha}
+      - DITTO_URL=${DITTO_URL:-http://ditto-gateway:8080}
+      - DITTO_AUTH_VALUE=nginx:nodered
+      - BUFFER_SIZE=2000
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - nodered
+    restart: unless-stopped
+
+  # ===========================================================================
+  # NEW: BIGQUERY STREAMER
+  # Runs on: alpha, beta (edge nodes only)
+  # Built in Phase 4 — placeholder profile defined now
+  # ===========================================================================
+  bigquery-streamer:
+    build:
+      context: ./iofog/microservices/bigquery-streamer
+      dockerfile: Dockerfile
+    container_name: smart_cooling_bq_streamer
+    profiles: [alpha, beta]
+    environment:
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_DATASET=${GCP_BIGQUERY_DATASET:-cold_storage_lake}
+      - GCP_REGION=${GCP_REGION:-asia-south1}
+      - GCP_SERVICE_ACCOUNT_KEY=/app/gcp/service-account.json
+      - WAREHOUSE_ID=${WAREHOUSE_ID:-alpha}
+      - UNIT_IDS=${UNIT_IDS:-CS-01,CS-02}
+      - BATCH_SIZE=200
+      - BATCH_TIMEOUT_SECONDS=30
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=smart-cooling-super-secret-token
+      - CENTRAL_INFLUXDB_URL=${CENTRAL_INFLUXDB_URL:-http://influxdb:8086}
+      - CENTRAL_INFLUXDB_TOKEN=smart-cooling-super-secret-token
+    volumes:
+      - ./gcp:/app/gcp:ro
+    networks:
+      - smart_cooling_network
+    depends_on:
+      - influxdb
+    restart: unless-stopped
 
 networks:
   smart_cooling_network:
@@ -266,7 +503,9 @@ volumes:
     name: smart_cooling_influxdb_config
   mongodb_data:
     name: smart_cooling_mongodb_data
-  nodered_data:
-    name: smart_cooling_nodered_data
   grafana_data:
     name: smart_cooling_grafana_data
+  iofog_agent_data:
+    name: smart_cooling_iofog_agent_data
+  iofog_agent_log:
+    name: smart_cooling_iofog_agent_log

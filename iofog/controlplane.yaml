@@ -1,0 +1,43 @@
+---
+# =============================================================================
+# ioFog Control Plane — Smart Cold Storage Digital Twin
+# =============================================================================
+# This file defines the ioFog Controller running on the GCP e2-micro VM.
+#
+# Usage (run from Laptop 1 after GCP setup.sh completes):
+#   iofogctl deploy controlplane -f iofog/controlplane.yaml
+#
+# Prerequisites:
+#   1. GCP VM created by gcp/setup.sh (get IP from GCP console)
+#   2. SSH key pair generated: ssh-keygen -t rsa -b 4096 -f ~/.ssh/iofog_gcp
+#   3. SSH public key added to GCP VM:
+#      gcloud compute instances add-metadata iofog-controller \
+#        --zone=asia-south1-a \
+#        --metadata=ssh-keys="ubuntu:$(cat ~/.ssh/iofog_gcp.pub)"
+#   4. Update CONTROLLER_IP below with actual GCP VM external IP
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: ControlPlane
+metadata:
+  name: smart-cold-storage-ecn
+  namespace: smart-cooling
+
+spec:
+  iofogUser:
+    name: Smart Cooling Admin
+    surname: Admin
+    email: admin@smart-cooling.local
+    password: SmartCooling@2026
+
+  controllers:
+    - name: gcp-controller
+      host: ${IOFOG_CONTROLLER_IP}   # Set in .env after GCP setup
+      ssh:
+        user: ubuntu
+        keyFile: ~/.ssh/iofog_gcp
+        port: 22
+      systemImages:
+        controller: iofog/controller:3.4.0
+        router:     iofog/router:3.4.0
+        proxy:      iofog/proxy:3.4.0

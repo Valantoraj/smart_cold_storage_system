@@ -1,0 +1,11 @@
+[
+  {"name": "reportDate",      "type": "DATE",      "mode": "REQUIRED"},
+  {"name": "reportType",      "type": "STRING",    "mode": "REQUIRED", "description": "daily / incident / weekly"},
+  {"name": "reportText",      "type": "STRING",    "mode": "REQUIRED"},
+  {"name": "unitsSummary",    "type": "JSON",      "mode": "NULLABLE"},
+  {"name": "topRisks",        "type": "JSON",      "mode": "NULLABLE"},
+  {"name": "generatedBy",     "type": "STRING",    "mode": "NULLABLE", "description": "gemini-2.0-flash"},
+  {"name": "generatedAt",     "type": "TIMESTAMP", "mode": "REQUIRED"},
+  {"name": "emailedTo",       "type": "STRING",    "mode": "NULLABLE"},
+  {"name": "storageUri",      "type": "STRING",    "mode": "NULLABLE", "description": "gs:// path to PDF"}
+]

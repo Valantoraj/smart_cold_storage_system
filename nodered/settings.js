@@ -5,6 +5,9 @@
  */
 
 module.exports = {
+    // Disable credential encryption so plain flows_cred.json is used directly
+    credentialSecret: false,
+
     // the tcp port that the Node-RED web server is listening on
     uiPort: process.env.PORT || 1880,
 

@@ -1,0 +1,130 @@
+---
+# =============================================================================
+# ioFog Agents — Smart Cold Storage Digital Twin
+# =============================================================================
+# Defines all 3 edge node agents (one per laptop).
+#
+# Usage (run from Laptop 1 after controlplane is deployed):
+#   iofogctl deploy agents -f iofog/agents.yaml
+#
+# IMPORTANT: Each agent section uses environment variables from .env.
+# The agent Docker container runs on each laptop and connects OUTBOUND
+# to the GCP Controller — no inbound ports needed on any laptop.
+#
+# For Windows laptops, the ioFog Agent runs as a Docker container:
+#   docker run -d --name iofog-agent \
+#     --privileged \
+#     -v /var/run/docker.sock:/var/run/docker.sock \
+#     -e IOFOG_CONTROLLER_URL=http://<GCP_IP>:51121 \
+#     iofog/agent:3.4.0
+#
+# This file is used when bootstrapping from iofogctl.
+# The setup.ps1 script on each laptop handles the Docker run command.
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: AgentList
+metadata:
+  name: smart-cold-storage-agents
+  namespace: smart-cooling
+
+spec:
+  agents:
+
+    # ─── Agent Alpha (Laptop 1 — Warehouse Alpha, CS-01 + CS-02) ─────────────
+    - name: agent-alpha
+      host: ${LAPTOP1_IP}          # Set in .env
+      ssh:
+        user: ${LAPTOP1_SSH_USER}
+        keyFile: ~/.ssh/iofog_alpha
+        port: 22
+      agentConfig:
+        name: agent-alpha
+        description: "Warehouse Alpha edge node — CS-01, CS-02"
+        latitude: 11.0168          # Coimbatore coordinates (update as needed)
+        longitude: 76.9558
+        agentType: 1               # 1 = regular agent
+        dockerUrl: unix:///var/run/docker.sock
+        diskLimit: 10              # GB
+        diskDirectory: /var/lib/iofog-agent
+        memoryLimit: 2048          # MB — laptop has more RAM
+        cpuLimit: 80               # % of CPU
+        logLimit: 2                # GB for logs
+        logDirectory: /var/log/iofog-agent
+        logFileCount: 10
+        statusFrequency: 30        # seconds between status pings to controller
+        changeFrequency: 60        # seconds between config change checks
+        deviceScanFrequency: 60
+        bluetoothEnabled: false
+        watchdogEnabled: true
+      tags:
+        - role=edge
+        - warehouse=alpha
+        - units=CS-01,CS-02
+        - os=windows
+        - NODE_ROLE=alpha
+
+    # ─── Agent Beta (Laptop 2 — Warehouse Beta, CS-03) ────────────────────────
+    - name: agent-beta
+      host: ${LAPTOP2_IP}          # Set in .env
+      ssh:
+        user: ${LAPTOP2_SSH_USER}
+        keyFile: ~/.ssh/iofog_beta
+        port: 22
+      agentConfig:
+        name: agent-beta
+        description: "Warehouse Beta edge node — CS-03"
+        latitude: 11.0168
+        longitude: 76.9558
+        agentType: 1
+        dockerUrl: unix:///var/run/docker.sock
+        diskLimit: 10
+        diskDirectory: /var/lib/iofog-agent
+        memoryLimit: 2048
+        cpuLimit: 80
+        logLimit: 2
+        logDirectory: /var/log/iofog-agent
+        logFileCount: 10
+        statusFrequency: 30
+        changeFrequency: 60
+        deviceScanFrequency: 60
+        bluetoothEnabled: false
+        watchdogEnabled: true
+      tags:
+        - role=edge
+        - warehouse=beta
+        - units=CS-03
+        - os=windows
+        - NODE_ROLE=beta
+
+    # ─── Agent Gamma (Laptop 3 — Operations Console) ──────────────────────────
+    - name: agent-gamma
+      host: ${LAPTOP3_IP}          # Set in .env
+      ssh:
+        user: ${LAPTOP3_SSH_USER}
+        keyFile: ~/.ssh/iofog_gamma
+        port: 22
+      agentConfig:
+        name: agent-gamma
+        description: "Operations Console — monitoring and AI chat"
+        latitude: 11.0168
+        longitude: 76.9558
+        agentType: 1
+        dockerUrl: unix:///var/run/docker.sock
+        diskLimit: 10
+        diskDirectory: /var/lib/iofog-agent
+        memoryLimit: 1024
+        cpuLimit: 60
+        logLimit: 1
+        logDirectory: /var/log/iofog-agent
+        logFileCount: 5
+        statusFrequency: 30
+        changeFrequency: 60
+        deviceScanFrequency: 60
+        bluetoothEnabled: false
+        watchdogEnabled: true
+      tags:
+        - role=console
+        - warehouse=gamma
+        - os=windows
+        - NODE_ROLE=gamma

@@ -1,0 +1,12 @@
+[
+  {"name": "unitId",            "type": "STRING",    "mode": "REQUIRED", "description": "Cold storage unit identifier (CS-01, CS-02, CS-03)"},
+  {"name": "warehouseId",       "type": "STRING",    "mode": "REQUIRED", "description": "Warehouse identifier (alpha, beta, gamma)"},
+  {"name": "nodeId",            "type": "STRING",    "mode": "REQUIRED", "description": "ioFog edge node identifier"},
+  {"name": "temperature",       "type": "FLOAT64",   "mode": "REQUIRED", "description": "Temperature in Celsius"},
+  {"name": "humidity",          "type": "FLOAT64",   "mode": "REQUIRED", "description": "Humidity percentage"},
+  {"name": "compressorStatus",  "type": "STRING",    "mode": "REQUIRED", "description": "ON or OFF"},
+  {"name": "energyConsumption", "type": "FLOAT64",   "mode": "REQUIRED", "description": "Energy consumption in kW"},
+  {"name": "scenario",          "type": "STRING",    "mode": "NULLABLE", "description": "Active simulation scenario"},
+  {"name": "timestamp",         "type": "TIMESTAMP", "mode": "REQUIRED", "description": "Sensor reading timestamp (partition key)"},
+  {"name": "ingestedAt",        "type": "TIMESTAMP", "mode": "NULLABLE", "description": "When this record arrived in BigQuery"}
+]

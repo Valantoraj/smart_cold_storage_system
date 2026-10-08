@@ -1,0 +1,214 @@
+---
+# =============================================================================
+# ioFog Application — Agent Beta (Laptop 2, Warehouse Beta)
+# Units: CS-03
+# =============================================================================
+# Deploy: iofogctl deploy application -f iofog/apps/app-beta.yaml
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: Application
+metadata:
+  name: app-beta
+  namespace: smart-cooling
+
+spec:
+  microservices:
+
+    - name: mosquitto-beta
+      agent:
+        name: agent-beta
+      images:
+        x86: eclipse-mosquitto:2.0
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 1883
+            internal: 1883
+            protocol: tcp
+          - external: 9001
+            internal: 9001
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/mosquitto/config
+            containerDestination: /mosquitto/config
+            accessMode: r
+          - hostDestination: /opt/smart-cooling/mosquitto/data
+            containerDestination: /mosquitto/data
+            accessMode: rw
+          - hostDestination: /opt/smart-cooling/mosquitto/log
+            containerDestination: /mosquitto/log
+            accessMode: rw
+        env:
+          - key: TZ
+            value: UTC
+      config: {}
+
+    - name: nodered-beta
+      agent:
+        name: agent-beta
+      images:
+        x86: nodered/node-red:latest
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 1880
+            internal: 1880
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/nodered
+            containerDestination: /data
+            accessMode: rw
+        env:
+          - key: TZ
+            value: UTC
+          - key: NODE_ROLE
+            value: beta
+          - key: UNIT_IDS
+            value: CS-03
+          - key: WAREHOUSE_ID
+            value: beta
+          - key: MQTT_BROKER
+            value: mosquitto-beta:1883
+          - key: INFLUXDB_URL
+            value: http://influxdb-beta:8086
+          - key: INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+          - key: INFLUXDB_ORG
+            value: smart_cooling
+          - key: INFLUXDB_BUCKET
+            value: cold_storage
+          - key: DITTO_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8080
+      config:
+        adaptiveThresholds: true
+        ioFogBusEnabled: true
+
+    - name: influxdb-beta
+      agent:
+        name: agent-beta
+      images:
+        x86: influxdb:2.7
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 8086
+            internal: 8086
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/influxdb/data
+            containerDestination: /var/lib/influxdb2
+            accessMode: rw
+          - hostDestination: /opt/smart-cooling/influxdb/config
+            containerDestination: /etc/influxdb2
+            accessMode: rw
+        env:
+          - key: DOCKER_INFLUXDB_INIT_MODE
+            value: setup
+          - key: DOCKER_INFLUXDB_INIT_USERNAME
+            value: admin
+          - key: DOCKER_INFLUXDB_INIT_PASSWORD
+            value: adminpass123
+          - key: DOCKER_INFLUXDB_INIT_ORG
+            value: smart_cooling
+          - key: DOCKER_INFLUXDB_INIT_BUCKET
+            value: cold_storage
+          - key: DOCKER_INFLUXDB_INIT_RETENTION
+            value: 7d
+          - key: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+            value: smart-cooling-super-secret-token
+      config: {}
+
+    - name: edge-anomaly-beta
+      agent:
+        name: agent-beta
+      images:
+        x86: smart-cooling/edge-anomaly-detector:1.0
+      container:
+        rootHostAccess: false
+        ports: []
+        env:
+          - key: UNIT_IDS
+            value: CS-03
+          - key: WAREHOUSE_ID
+            value: beta
+          - key: INFLUXDB_URL
+            value: http://influxdb-beta:8086
+          - key: INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+          - key: INFLUXDB_ORG
+            value: smart_cooling
+          - key: SCAN_INTERVAL_SECONDS
+            value: "30"
+          - key: WARNING_THRESHOLD
+            value: "0.4"
+          - key: HIGH_THRESHOLD
+            value: "0.65"
+          - key: CRITICAL_THRESHOLD
+            value: "0.85"
+          - key: NODERED_WEBHOOK_URL
+            value: http://nodered-beta:1880/webhook/anomaly
+      config:
+        enabled: true
+
+    - name: ditto-sync-beta
+      agent:
+        name: agent-beta
+      images:
+        x86: smart-cooling/ditto-sync-agent:1.0
+      container:
+        rootHostAccess: false
+        ports: []
+        env:
+          - key: UNIT_IDS
+            value: CS-03
+          - key: WAREHOUSE_ID
+            value: beta
+          - key: DITTO_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8080
+          - key: DITTO_AUTH_HEADER
+            value: x-ditto-pre-authenticated
+          - key: DITTO_AUTH_VALUE
+            value: nginx:nodered
+          - key: BUFFER_SIZE
+            value: "2000"
+      config: {}
+
+    - name: bq-streamer-beta
+      agent:
+        name: agent-beta
+      images:
+        x86: smart-cooling/bigquery-streamer:1.0
+      container:
+        rootHostAccess: false
+        ports: []
+        volumes:
+          - hostDestination: /opt/smart-cooling/gcp
+            containerDestination: /app/gcp
+            accessMode: r
+        env:
+          - key: GCP_PROJECT_ID
+            value: ${GCP_PROJECT_ID}
+          - key: GCP_DATASET
+            value: cold_storage_lake
+          - key: GCP_REGION
+            value: asia-south1
+          - key: GCP_SERVICE_ACCOUNT_KEY
+            value: /app/gcp/service-account.json
+          - key: WAREHOUSE_ID
+            value: beta
+          - key: UNIT_IDS
+            value: CS-03
+          - key: BATCH_SIZE
+            value: "200"
+          - key: BATCH_TIMEOUT_SECONDS
+            value: "30"
+          - key: INFLUXDB_URL
+            value: http://influxdb-beta:8086
+          - key: INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+          - key: CENTRAL_INFLUXDB_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8087
+          - key: CENTRAL_INFLUXDB_TOKEN
+            value: smart-cooling-super-secret-token
+      config: {}

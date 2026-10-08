@@ -1,0 +1,85 @@
+---
+# =============================================================================
+# ioFog Message Bus Routes — Smart Cold Storage Digital Twin
+# =============================================================================
+# These routes define the encrypted inter-node data flows.
+# Messages travel: Source Microservice → ioFog Router (GCP) → Dest Microservice
+# No direct IP connections needed between laptops.
+#
+# Deploy: iofogctl deploy routes -f iofog/routes.yaml
+# List:   iofogctl get routes
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: RouteList
+metadata:
+  name: smart-cold-storage-routes
+  namespace: smart-cooling
+
+spec:
+  routes:
+
+    # ─── Sensor Data: Alpha edge → BigQuery Streamer (same node) ─────────────
+    # Node-RED on Alpha publishes processed readings to ioFog bus.
+    # BigQuery Streamer on Alpha receives and batches to GCP.
+    - name: alpha-nodered-to-bqstreamer
+      from: nodered-alpha
+      to: bq-streamer-alpha
+
+    # ─── Sensor Data: Beta edge → BigQuery Streamer (same node) ──────────────
+    - name: beta-nodered-to-bqstreamer
+      from: nodered-beta
+      to: bq-streamer-beta
+
+    # ─── Anomaly Scores: Alpha detector → Ditto Sync Agent ───────────────────
+    # Edge Anomaly Detector publishes scores.
+    # Ditto Sync Agent patches GCP Ditto with the anomaly feature.
+    - name: alpha-anomaly-to-dittosync
+      from: edge-anomaly-alpha
+      to: ditto-sync-alpha
+
+    # ─── Anomaly Scores: Beta detector → Ditto Sync Agent ────────────────────
+    - name: beta-anomaly-to-dittosync
+      from: edge-anomaly-beta
+      to: ditto-sync-beta
+
+    # ─── Cloud Feedback: BQ Streamer Alpha → Edge Anomaly Alpha ──────────────
+    # BigQuery Streamer receives calibration data from GCP (BigQuery ML results)
+    # and forwards it back to the Edge Anomaly Detector to update thresholds.
+    - name: alpha-bqstreamer-to-anomaly
+      from: bq-streamer-alpha
+      to: edge-anomaly-alpha
+
+    # ─── Cloud Feedback: BQ Streamer Beta → Edge Anomaly Beta ────────────────
+    - name: beta-bqstreamer-to-anomaly
+      from: bq-streamer-beta
+      to: edge-anomaly-beta
+
+    # ─── Anomaly Alerts: Alpha → Fleet Dashboard (Gamma) ─────────────────────
+    # Critical anomaly events from Alpha are forwarded to the ops console.
+    - name: alpha-anomaly-to-dashboard
+      from: edge-anomaly-alpha
+      to: fleet-dashboard-gamma
+
+    # ─── Anomaly Alerts: Beta → Fleet Dashboard (Gamma) ──────────────────────
+    - name: beta-anomaly-to-dashboard
+      from: edge-anomaly-beta
+      to: fleet-dashboard-gamma
+
+    # ─── Ditto Sync: Alpha → Fleet Dashboard notifications ───────────────────
+    # Ditto sync agent on Alpha publishes twin update events.
+    # Fleet Dashboard receives them for real-time UI updates.
+    - name: alpha-dittosync-to-dashboard
+      from: ditto-sync-alpha
+      to: fleet-dashboard-gamma
+
+    # ─── Ditto Sync: Beta → Fleet Dashboard notifications ────────────────────
+    - name: beta-dittosync-to-dashboard
+      from: ditto-sync-beta
+      to: fleet-dashboard-gamma
+
+    # ─── Node-RED Alpha → Webapp (same agent, internal) ──────────────────────
+    # Alert events from Node-RED flow to the Webapp for toast notifications.
+    - name: alpha-nodered-to-webapp
+      from: nodered-alpha
+      to: webapp-alpha

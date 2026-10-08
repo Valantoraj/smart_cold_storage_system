@@ -1,0 +1,11 @@
+[
+  {"name": "unitId",           "type": "STRING",    "mode": "REQUIRED"},
+  {"name": "warehouseId",      "type": "STRING",    "mode": "REQUIRED"},
+  {"name": "edgeScore",        "type": "FLOAT64",   "mode": "NULLABLE", "description": "Score from Edge Anomaly Detector (0.0-1.0)"},
+  {"name": "cloudScore",       "type": "FLOAT64",   "mode": "NULLABLE", "description": "Score from BigQuery ML TimesFM (0.0-1.0)"},
+  {"name": "riskLevel",        "type": "STRING",    "mode": "NULLABLE", "description": "normal / warning / high / critical"},
+  {"name": "explanation",      "type": "STRING",    "mode": "NULLABLE", "description": "Human-readable explanation of score"},
+  {"name": "dominantSignal",   "type": "STRING",    "mode": "NULLABLE", "description": "Which sensor drove the score"},
+  {"name": "evaluatedAt",      "type": "TIMESTAMP", "mode": "REQUIRED", "description": "When score was computed (partition key)"},
+  {"name": "modelVersion",     "type": "STRING",    "mode": "NULLABLE"}
+]

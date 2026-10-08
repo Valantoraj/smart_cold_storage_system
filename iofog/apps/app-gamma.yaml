@@ -1,0 +1,95 @@
+---
+# =============================================================================
+# ioFog Application — Agent Gamma (Laptop 3, Operations Console)
+# Role: monitoring, AI chat, fleet dashboard
+# =============================================================================
+# Deploy: iofogctl deploy application -f iofog/apps/app-gamma.yaml
+# =============================================================================
+
+apiVersion: iofog.org/v3
+kind: Application
+metadata:
+  name: app-gamma
+  namespace: smart-cooling
+
+spec:
+  microservices:
+
+    # ─── Grafana (reads from central InfluxDB + BigQuery on GCP) ─────────────
+    - name: grafana-gamma
+      agent:
+        name: agent-gamma
+      images:
+        x86: grafana/grafana:10.2.0
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 3000
+            internal: 3000
+            protocol: tcp
+        volumes:
+          - hostDestination: /opt/smart-cooling/grafana/data
+            containerDestination: /var/lib/grafana
+            accessMode: rw
+          - hostDestination: /opt/smart-cooling/grafana/provisioning
+            containerDestination: /etc/grafana/provisioning
+            accessMode: r
+          - hostDestination: /opt/smart-cooling/grafana/dashboards
+            containerDestination: /var/lib/grafana/dashboards
+            accessMode: r
+        env:
+          - key: GF_SECURITY_ADMIN_USER
+            value: admin
+          - key: GF_SECURITY_ADMIN_PASSWORD
+            value: Valan@2005
+          - key: GF_USERS_ALLOW_SIGN_UP
+            value: "false"
+          - key: CENTRAL_INFLUXDB_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8087
+          - key: GCP_PROJECT_ID
+            value: ${GCP_PROJECT_ID}
+      config: {}
+
+    # ─── Fleet Dashboard (React app with live Ditto WebSocket + AI chat) ──────
+    - name: fleet-dashboard-gamma
+      agent:
+        name: agent-gamma
+      images:
+        x86: smart-cooling/fleet-dashboard:1.0
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 8090
+            internal: 8090
+            protocol: tcp
+        env:
+          - key: NODE_ROLE
+            value: gamma
+          - key: DITTO_WS_URL
+            value: ws://${IOFOG_CONTROLLER_IP}:8080/ws/2
+          - key: DITTO_HTTP_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8080
+          - key: AGENT_API_URL
+            value: http://${IOFOG_CONTROLLER_IP}:9000
+          - key: REST_API_URL
+            value: http://${LAPTOP1_IP}:3001
+          - key: IOFOG_CONTROLLER_URL
+            value: http://${IOFOG_CONTROLLER_IP}:51121
+      config: {}
+
+    # ─── Ditto UI (Eclipse Ditto's official browser UI) ──────────────────────
+    - name: ditto-ui-gamma
+      agent:
+        name: agent-gamma
+      images:
+        x86: eclipse/ditto-ui:3.4.0
+      container:
+        rootHostAccess: false
+        ports:
+          - external: 8091
+            internal: 80
+            protocol: tcp
+        env:
+          - key: DITTO_API_URL
+            value: http://${IOFOG_CONTROLLER_IP}:8080
+      config: {}
