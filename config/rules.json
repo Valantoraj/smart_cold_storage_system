@@ -1,0 +1,1 @@
+{"window_min":15,"warmup_min":15,"eval_interval_s":60,"baseline_duty":0.40,"pm":{"slope_c_per_min":0.03,"duty_ratio":1.30,"on_power_ratio":1.10,"consecutive_evals":3},"temp_critical":{"over_hard_limit_min":2},"humidity":{"out_of_range_min":5},"clear_evals_to_deescalate":5,"renotify_min":10,"late_data_max_min":30,"stale_alert_suppress_min":2,"ewma":{"alpha":0.05,"k_sigma":4.0}}
