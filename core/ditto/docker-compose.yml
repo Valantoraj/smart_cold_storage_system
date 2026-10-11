@@ -1,0 +1,102 @@
+# core/ditto/docker-compose.yml
+# Eclipse Ditto 3.5.8 + MongoDB 6 on L3 (port 8080)
+# Run: docker compose up -d
+# Stop: docker compose down
+
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:6.0.14
+    restart: unless-stopped
+    networks: [ditto-net]
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: ditto
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  policies:
+    image: eclipse/ditto-policies:3.5.8
+    restart: unless-stopped
+    networks: [ditto-net]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_DB_HOSTNAME: mongodb
+      TZ: UTC
+    mem_limit: 384m
+
+  things:
+    image: eclipse/ditto-things:3.5.8
+    restart: unless-stopped
+    networks: [ditto-net]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_DB_HOSTNAME: mongodb
+      TZ: UTC
+    mem_limit: 384m
+
+  things-search:
+    image: eclipse/ditto-things-search:3.5.8
+    restart: unless-stopped
+    networks: [ditto-net]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_DB_HOSTNAME: mongodb
+      TZ: UTC
+    mem_limit: 256m
+
+  connectivity:
+    image: eclipse/ditto-connectivity:3.5.8
+    restart: unless-stopped
+    networks: [ditto-net]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_DB_HOSTNAME: mongodb
+      TZ: UTC
+    mem_limit: 384m
+
+  gateway:
+    image: eclipse/ditto-gateway:3.5.8
+    restart: unless-stopped
+    networks: [ditto-net]
+    depends_on: [policies, things, connectivity]
+    environment:
+      ENABLE_PRE_AUTHENTICATION: "true"
+      DEVOPS_SECURE_STATUS: "false"
+      TZ: UTC
+    mem_limit: 256m
+
+  nginx:
+    image: nginx:1.27.2-alpine
+    restart: unless-stopped
+    networks: [ditto-net]
+    depends_on: [gateway]
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo-data:
+
+networks:
+  ditto-net:
+    driver: bridge

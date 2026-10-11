@@ -1,0 +1,59 @@
+# compose/compose-fog.yml — L2 fog stack
+# Run on L2: docker compose -f compose-fog.yml up -d
+# Requires topology.env vars exported in shell
+
+version: "3.8"
+
+services:
+  mosquitto-fog:
+    image: ${IMAGE_PREFIX:-us-central1-docker.pkg.dev/project-f47e3be0-07f0-4225-b8e/coldtwin}/mosquitto-fog:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosq-fog-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "$$SYS/broker/version", "-C", "1", "-W", "3"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  nodered-fog:
+    image: ${IMAGE_PREFIX:-us-central1-docker.pkg.dev/project-f47e3be0-07f0-4225-b8e/coldtwin}/nodered-fog:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    ports:
+      - "1880:1880"
+    environment:
+      FOG_NODE_ID:    fog-l2
+      INFLUX_URL:     "http://${L2_IP:-localhost}:8086"
+      INFLUX_TOKEN:   "${INFLUX_TOKEN:-coldtwin-default-token-change-me}"
+      INFLUX_ORG:     "${INFLUX_ORG:-coldchain}"
+      INFLUX_BUCKET:  "${INFLUX_BUCKET:-telemetry}"
+      DITTO_URL:      "http://${L3_IP:-localhost}:8080"
+      DITTO_USER:     "${DITTO_USER:-ditto}"
+      DITTO_PASSWORD: "${DITTO_PASSWORD:-ditto}"
+    depends_on:
+      mosquitto-fog:
+        condition: service_healthy
+
+  cloud-bridge:
+    image: ${IMAGE_PREFIX:-us-central1-docker.pkg.dev/project-f47e3be0-07f0-4225-b8e/coldtwin}/cloud-bridge:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    volumes:
+      - bridge-outbox:/data
+      - /etc/coldtwin:/secrets:ro
+    environment:
+      MQTT_HOST:       mosquitto-fog
+      GCP_PROJECT_ID:  "${GCP_PROJECT_ID:-project-f47e3be0-07f0-4225-b8e}"
+      TOPIC:           coldstorage-telemetry
+      SUBSCRIPTION:    agent-actions-sub
+      OUTBOX_PATH:     /data/outbox.db
+      # Use ADC on L2 (key blocked by org policy). If key exists, uncomment:
+      # GOOGLE_APPLICATION_CREDENTIALS: /secrets/fog-bridge-key.json
+    depends_on:
+      mosquitto-fog:
+        condition: service_healthy
+
+volumes:
+  mosq-fog-data:
+  bridge-outbox:

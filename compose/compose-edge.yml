@@ -1,0 +1,47 @@
+# compose/compose-edge.yml — L1 edge stack
+# Run on L1: docker compose -f compose-edge.yml up -d
+# Requires: config/topology.env (source it first, or use: set -a; source ../config/topology.env; set +a)
+
+version: "3.8"
+
+services:
+  mosquitto-edge:
+    image: ${IMAGE_PREFIX:-us-central1-docker.pkg.dev/project-f47e3be0-07f0-4225-b8e/coldtwin}/mosquitto-edge:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosq-edge-data:/mosquitto/data
+    environment:
+      FOG_HOST: ${L2_IP:-localhost}
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "$$SYS/broker/version", "-C", "1", "-W", "3"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  nodered-edge:
+    image: ${IMAGE_PREFIX:-us-central1-docker.pkg.dev/project-f47e3be0-07f0-4225-b8e/coldtwin}/nodered-edge:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    ports:
+      - "1880:1880"
+    environment:
+      EDGE_NODE_ID: edge-l1
+    depends_on:
+      mosquitto-edge:
+        condition: service_healthy
+
+  simulator:
+    image: ${IMAGE_PREFIX:-us-central1-docker.pkg.dev/project-f47e3be0-07f0-4225-b8e/coldtwin}/sensor-simulator:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    environment:
+      MQTT_HOST:      mosquitto-edge
+      MQTT_PORT:      "1883"
+      SIM_INTERVAL_S: "5"
+      UNITS:          CS-01,CS-02,CS-03
+    depends_on:
+      mosquitto-edge:
+        condition: service_healthy
+
+volumes:
+  mosq-edge-data:

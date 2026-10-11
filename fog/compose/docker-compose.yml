@@ -1,0 +1,58 @@
+# fog/compose/docker-compose.yml
+# InfluxDB 2 + Grafana on L2 (fog node)
+# Run: docker compose up -d
+# Uses env vars from config/topology.env (source it before running, or use --env-file)
+
+version: "3.8"
+
+services:
+  influxdb:
+    image: influxdb:2.7.10
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influx-data:/var/lib/influxdb2
+      - influx-config:/etc/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE:        setup
+      DOCKER_INFLUXDB_INIT_USERNAME:    admin
+      DOCKER_INFLUXDB_INIT_PASSWORD:    "${INFLUX_ADMIN_PASSWORD:-coldtwin-admin-pass}"
+      DOCKER_INFLUXDB_INIT_ORG:         "${INFLUX_ORG:-coldchain}"
+      DOCKER_INFLUXDB_INIT_BUCKET:      "${INFLUX_BUCKET:-telemetry}"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:-coldtwin-default-token-change-me}"
+      DOCKER_INFLUXDB_INIT_RETENTION:   "720h"   # 30 days
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-coldtwin-grafana}"
+      GF_SECURITY_ADMIN_USER:     admin
+      GF_SERVER_ROOT_URL:         "http://localhost:3000"
+      GF_INSTALL_PLUGINS:         ""
+      GF_ALERTING_ENABLED:        "false"
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+      INFLUX_TOKEN:               "${INFLUX_TOKEN:-coldtwin-default-token-change-me}"
+      INFLUX_ORG:                 "${INFLUX_ORG:-coldchain}"
+      INFLUX_BUCKET:              "${INFLUX_BUCKET:-telemetry}"
+      L2_IP:                      "${L2_IP:-localhost}"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+volumes:
+  influx-data:
+  influx-config:
+  grafana-data:

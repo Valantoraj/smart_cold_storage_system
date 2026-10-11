@@ -1,0 +1,11 @@
+config/topology.env
+*.json
+!config/units.json
+!config/rules.json
+!**/package.json
+!**/package-lock.json
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+/etc/coldtwin/
